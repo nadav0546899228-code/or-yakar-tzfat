@@ -1,0 +1,34 @@
+// בניית הצד הלקוח לתיקיית public (esbuild - מהיר, ללא תלויות כבדות).
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.dirname(fileURLToPath(import.meta.url));
+let esbuild;
+try { esbuild = await import('esbuild'); } catch { esbuild = await import(process.env.ESBUILD_PATH); }
+const out = path.join(root, 'public');
+fs.mkdirSync(path.join(out, 'assets'), { recursive: true });
+
+await esbuild.build({
+  entryPoints: [path.join(root, 'client', 'main.jsx')],
+  bundle: true,
+  minify: true,
+  format: 'iife',
+  target: ['es2020'],
+  jsx: 'automatic',
+  loader: { '.js': 'jsx', '.jsx': 'jsx' },
+  define: { 'process.env.NODE_ENV': '"production"' },
+  outfile: path.join(out, 'assets', 'app.js'),
+  nodePaths: process.env.EXTRA_NODE_PATH ? [process.env.EXTRA_NODE_PATH] : [],
+  logLevel: 'info',
+});
+
+const v = Date.now().toString(36);
+fs.writeFileSync(path.join(out, 'index.html'), fs.readFileSync(path.join(root, 'client', 'index.html'), 'utf8').replaceAll('__V__', v));
+fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
+  name: 'מוסדות אור יקר צפת', short_name: 'אור יקר', start_url: '/app', display: 'standalone', dir: 'rtl', lang: 'he',
+  background_color: '#ffffff', theme_color: '#16357a',
+  icons: [{ src: 'https://or-yakar-blue.co.il/wp-content/uploads/2024/01/cropped-%D7%90%D7%95%D7%A8-%D7%99%D7%A7%D7%A8-%D7%A6%D7%A4%D7%AA-270x270.webp', sizes: '270x270', type: 'image/webp' }],
+}, null, 2));
+fs.writeFileSync(path.join(out, 'robots.txt'), 'User-agent: *\nDisallow: /app\nDisallow: /login\nDisallow: /api\n');
+console.log('build ok');
