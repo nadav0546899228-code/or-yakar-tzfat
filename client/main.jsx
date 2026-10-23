@@ -5,6 +5,17 @@ import { RouterProvider, useRoute, api, Toasts, Spinner } from './lib.jsx';
 import { PublicSite } from './site.jsx';
 import { AppShell, Login } from './app.jsx';
 
+// דיווח שגיאות דפדפן לשרת (לדוח המצב)
+let reported = 0;
+function reportError(message, stack) {
+  if (reported++ > 10) return;
+  try {
+    fetch('/api/diag/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: String(message).slice(0, 500), stack: String(stack || '').slice(0, 2000), url: window.location.pathname }) });
+  } catch { /* */ }
+}
+window.addEventListener('error', (e) => { if (e.message) reportError(e.message, e.error?.stack); });
+window.addEventListener('unhandledrejection', (e) => reportError(e.reason?.message || String(e.reason), e.reason?.stack));
+
 function applyTheme(theme) {
   if (!theme) return;
   const r = document.documentElement.style;

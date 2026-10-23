@@ -11,6 +11,7 @@ import { loadSession, registerAuthRoutes } from './auth.js';
 import { registerCrudRoutes } from './routes/crud.js';
 import { registerFinanceRoutes } from './routes/finance.js';
 import { registerSystemRoutes } from './routes/system.js';
+import { registerDiagRoutes, logError } from './routes/diag.js';
 import { ensureDefaults } from './settings.js';
 import { runDailyAutomations } from './automations.js';
 import { envInfo } from './env.js';
@@ -29,6 +30,8 @@ registerAuthRoutes(router);
 registerCrudRoutes(router);
 registerFinanceRoutes(router);
 registerSystemRoutes(router);
+registerDiagRoutes(router);
+process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
 router.get('/api/health', async (ctx) => ctx.json(200, { ok: true, ...envInfo() }));
 
 const MIME = {
@@ -87,7 +90,7 @@ const server = http.createServer(async (req, res) => {
         const host = req.headers['x-forwarded-host'] || req.headers.host;
         if (new URL(origin).host !== host) throw new HttpError(403, 'מקור הבקשה אינו מורשה');
       }
-      if (/\/api\/(auth\/login|donor\/otp|donor\/login|public\/)/.test(pathname) && rateLimited(`${ctx.ip}:${pathname}`, 20, 10 * 60 * 1000)) {
+      if (/\/api\/(auth\/login|donor\/otp|donor\/login|public\/|diag\/client-error)/.test(pathname) && rateLimited(`${ctx.ip}:${pathname}`, 20, 10 * 60 * 1000)) {
         throw new HttpError(429, 'יותר מדי בקשות. נסו שוב בעוד כמה דקות');
       }
       ctx.body = await readBody(req);
@@ -98,7 +101,10 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) ctx.json(204, {});
   } catch (e) {
     const status = e.status || 500;
-    if (status >= 500) console.error(`[${req.method} ${pathname}]`, e);
+    if (status >= 500) {
+      console.error(`[${req.method} ${pathname}]`, e);
+      logError({ source: 'server', path: `${req.method} ${pathname}`, message: e.message, stack: e.stack, userId: ctx.user?.id || null });
+    }
     const errId = status >= 500 ? `E-${Date.now().toString(36)}` : undefined;
     ctx.json(status, { error: status >= 500 ? `שגיאת שרת (${errId}). הפרטים נשמרו ביומן השרת` : e.message, ...(e.extra || {}) });
   }

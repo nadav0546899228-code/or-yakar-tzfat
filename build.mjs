@@ -30,5 +30,6 @@ fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
   background_color: '#ffffff', theme_color: '#16357a',
   icons: [{ src: 'https://or-yakar-blue.co.il/wp-content/uploads/2024/01/cropped-%D7%90%D7%95%D7%A8-%D7%99%D7%A7%D7%A8-%D7%A6%D7%A4%D7%AA-270x270.webp', sizes: '270x270', type: 'image/webp' }],
 }, null, 2));
+fs.writeFileSync(path.join(out, 'build.json'), JSON.stringify({ build_id: v, built_at: new Date().toISOString() }));
 fs.writeFileSync(path.join(out, 'robots.txt'), 'User-agent: *\nDisallow: /app\nDisallow: /login\nDisallow: /api\n');
 console.log('build ok');

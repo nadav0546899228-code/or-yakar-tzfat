@@ -165,9 +165,40 @@ function SystemTab() {
   );
 }
 
+function DiagTab() {
+  const { data, reload } = useApi('/diag/key');
+  const [report, setReport] = useState(null);
+  const url = data ? `${window.location.origin}/api/diag?key=${data.key}` : '';
+  const load = () => fetch(url).then((r) => r.json()).then(setReport).catch((e) => toast(e.message, 'error'));
+  useEffect(() => { if (data) load(); }, [data?.key]);
+  return (
+    <div className="stack">
+      <div className="notice small">דוח מצב לקריאה בלבד: גרסה, סביבה, ספירת רשומות, מצב החיבורים, שגיאות שרת ודפדפן אחרונות ופעולות אחרונות. ללא פרטי תורמים, טלפונים, מיילים או מפתחות. מי שמחזיק בקישור יכול לקרוא את הדוח - אפשר להחליף מפתח בכל רגע.</div>
+      <div className="card stack">
+        <h3>קישור הדוח</h3>
+        <code className="input" style={{ direction: 'ltr', wordBreak: 'break-all', fontSize: 12 }}>{url || '...'}</code>
+        <div className="row">
+          <button className="btn primary" onClick={() => { navigator.clipboard?.writeText(url); toast('הקישור הועתק', 'ok'); }}>העתקת הקישור</button>
+          <button className="btn" onClick={load}>רענון</button>
+          <button className="btn danger" onClick={() => window.confirm('להחליף מפתח? הקישור הקודם יפסיק לעבוד') && run(() => api('/diag/rotate', { method: 'POST' }), 'הוחלף').then(reload)}>החלפת מפתח</button>
+          <button className="btn" onClick={() => run(() => api('/diag/clear-errors', { method: 'POST' }), 'יומן השגיאות נוקה').then(load)}>ניקוי שגיאות</button>
+        </div>
+      </div>
+      {report && (
+        <div className="card">
+          <h3>שגיאות אחרונות ({report.errors?.length || 0})</h3>
+          {(report.errors || []).map((e, i) => <div key={i} className="small" style={{ padding: '4px 0', borderBottom: '1px solid var(--line)' }}><Tag kind={e.source === 'client' ? 'info' : 'bad'}>{e.source}</Tag> {datetime(e.last_at)} · ×{e.count} · <span className="num">{e.path}</span><div style={{ direction: 'ltr', textAlign: 'left' }}>{e.message}</div></div>)}
+          {!report.errors?.length && <div className="muted small">אין שגיאות 🎉</div>}
+          <p className="small muted">גרסה: {report.build?.built_at || 'לא ידוע'} · {report.env?.label}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DevPage() {
   const [tab, setTab] = useState('providers');
-  const tabs = [['providers', 'חיבורים ו-API'], ['site', 'תוכן האתר והגדרות'], ['demo', 'נתוני דוגמה'], ['system', 'מערכת']];
+  const tabs = [['providers', 'חיבורים ו-API'], ['site', 'תוכן האתר והגדרות'], ['demo', 'נתוני דוגמה'], ['diag', 'דוח מצב'], ['system', 'מערכת']];
   return (
     <div>
       <div className="page-head"><h1>מסך המתכנת</h1></div>
@@ -175,6 +206,7 @@ export function DevPage() {
       {tab === 'providers' && <ProvidersTab />}
       {tab === 'site' && <SiteTab />}
       {tab === 'demo' && <DemoTab />}
+      {tab === 'diag' && <DiagTab />}
       {tab === 'system' && <SystemTab />}
     </div>
   );
