@@ -4,9 +4,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-let esbuild;
-try { esbuild = await import('esbuild'); } catch { esbuild = await import(process.env.ESBUILD_PATH); }
 const out = path.join(root, 'public');
+let esbuild;
+try { esbuild = await import('esbuild'); } catch {
+  try { esbuild = await import(process.env.ESBUILD_PATH); } catch {
+    // בפרסום ייתכן שכלי הבנייה לא מותקנים - תיקיית public כבר בנויה מראש ונשמרת בגיט
+    if (fs.existsSync(path.join(out, 'assets', 'app.js'))) {
+      console.log('esbuild לא זמין - משתמשים בגרסה הבנויה מראש שבתיקיית public');
+      process.exit(0);
+    }
+    throw new Error('esbuild לא מותקן ואין גרסה בנויה בתיקיית public');
+  }
+}
 fs.mkdirSync(path.join(out, 'assets'), { recursive: true });
 
 await esbuild.build({
