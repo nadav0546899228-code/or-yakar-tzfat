@@ -16,6 +16,10 @@ function reportError(message, stack) {
 window.addEventListener('error', (e) => { if (e.message) reportError(e.message, e.error?.stack); });
 window.addEventListener('unhandledrejection', (e) => reportError(e.reason?.message || String(e.reason), e.reason?.stack));
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+
 function applyTheme(theme) {
   if (!theme) return;
   const r = document.documentElement.style;
@@ -34,8 +38,6 @@ function Root() {
     api('/public/site').then((d) => {
       setSite(d);
       applyTheme(d.theme);
-      const icon = document.querySelector('link[rel=icon]');
-      if (icon && d.org.icon_url) icon.href = d.org.icon_url;
     }).catch(setErr);
   }, []);
   if (err) return <div className="empty">לא ניתן לטעון את האתר כרגע. נסו לרענן.<div className="small muted" style={{ marginTop: 8 }}>{err.message}</div></div>;
