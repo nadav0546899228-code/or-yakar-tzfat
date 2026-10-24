@@ -3,7 +3,7 @@ import { hashPin, verifyPin, randomToken, sha256, normalizePhone } from './lib/s
 import { HttpError } from './lib/router.js';
 import { can, ROLES, canManageRole, PERMS } from './roles.js';
 import { audit } from './audit.js';
-import { isSandbox } from './env.js';
+import { isSandbox, isPublished } from './env.js';
 import { registerGoogleRoutes } from './googleAuth.js';
 
 const COOKIE = 'oy_sess';
@@ -269,7 +269,7 @@ export function registerAuthRoutes(r) {
         ON CONFLICT (phone) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0`, [phone, sha256(code)]);
     }
     // לא חושפים אם הטלפון קיים; בפיתוח מציגים את הקוד לבדיקה
-    ctx.json(200, { ok: true, sandbox_code: isSandbox() && donor ? code : undefined });
+    ctx.json(200, { ok: true, sandbox_code: isSandbox() && !isPublished() && donor ? code : undefined });
   });
 
   r.post('/api/donor/login', async (ctx) => {

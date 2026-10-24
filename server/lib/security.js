@@ -56,3 +56,18 @@ export function normalizePhone(p) {
   if (d.startsWith('972')) d = `0${d.slice(3)}`;
   return d;
 }
+
+// פרטי חשבון בנק להוראות קבע - נשמרים מוצפנים בלבד
+export function bankRef(bank, branch, account) {
+  if (!account) return null;
+  return `enc:${encrypt({ bank: String(bank || ''), branch: String(branch || ''), account: String(account) })}`;
+}
+export function parseBankRef(ref) {
+  if (!ref) return null;
+  if (ref.startsWith('enc:')) {
+    const d = decrypt(ref.slice(4));
+    return d.account ? d : null;
+  }
+  const m = ref.match(/^BANK:(\d*)-(\d*)-(\d*)$/);
+  return m ? { bank: m[1], branch: m[2], account: m[3] } : null;
+}

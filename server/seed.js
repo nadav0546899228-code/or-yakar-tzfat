@@ -1,6 +1,8 @@
 // נתוני דוגמה מסומנים (is_demo) - ליצירה, תצוגה מקדימה וניקוי בלחיצה ממסך המתכנת.
 import { query, one, many, insert } from './lib/db.js';
-import { hashPin } from './lib/security.js';
+import { hashPin, bankRef } from './lib/security.js';
+import { isPublished } from './env.js';
+import crypto from 'node:crypto';
 
 const DEMO_TABLES = [
   'settlements', 'messages_out', 'notifications', 'box_collections', 'event_guests', 'call_tasks', 'pledges', 'interactions', 'donor_dates',
@@ -68,10 +70,13 @@ export async function seedDemo() {
     ['יהודית (מרכז הסיוע - דוגמה)', '0500000007', ['aid_coordinator']],
   ];
   const users = [];
+  const demoPins = {};
   for (const [name, phone, roles] of demoUsers) {
     let u = await one('SELECT * FROM users WHERE phone = $1', [phone]);
     if (!u) {
-      u = await insert('users', { name, phone, roles, pin_hash: hashPin('1234'), is_demo: true, institution_id: roles.includes('institution_manager') ? insts[0].id : null });
+      const pin = isPublished() ? String(crypto.randomInt(100000, 999999)) : '1234';
+      demoPins[phone] = pin;
+      u = await insert('users', { name, phone, roles, pin_hash: hashPin(pin), must_change_pin: isPublished(), is_demo: true, institution_id: roles.includes('institution_manager') ? insts[0].id : null });
       inc('users');
     }
     users.push(u);
@@ -129,7 +134,7 @@ export async function seedDemo() {
       currency: d.currency || 'ILS', day_of_month: rnd([1, 10, 15, 20]), start_date: daysAgo(30 * (3 + (i % 20))), status,
       end_date: i % 6 === 0 ? daysAgo(-30 * (1 + (i % 3))) : null, months_paid: 3 + (i % 20), institution_id: insts[i % 4].id, purpose_id: purposes[i % purposes.length].id,
       card_last4: src === 'masav' ? null : String(1000 + i * 37).slice(-4), bank_code: src === 'masav' ? '12' : null, branch_code: src === 'masav' ? '765' : null,
-      account_masked: src === 'masav' ? `****${String(1000 + i).slice(-4)}` : null, token_ref: src === 'masav' ? `BANK:12-765-${100000 + i}` : null,
+      account_masked: src === 'masav' ? `****${String(1000 + i).slice(-4)}` : null, token_ref: src === 'masav' ? bankRef('12', '765', String(100000 + i)) : null,
       cancelled_at: status === 'cancelled' ? new Date(Date.now() - (i % 40) * 86400000) : null, cancel_reason: status === 'cancelled' ? rnd(['קושי כלכלי', 'כרטיס הוחלף', 'עבר לתרום במקום אחר']) : null,
       recruiter_user_id: i % 3 === 0 ? recruiter.id : null, failures: status === 'failed' ? 3 : 0, is_demo: true,
     });
@@ -307,5 +312,5 @@ export async function seedDemo() {
   }
   await query("INSERT INTO notifications (title, body, link, roles, is_demo) VALUES ('ברוכים הבאים למערכת', 'נוצרו נתוני דוגמה לבדיקה. ניתן לנקות אותם ממסך המתכנת', '/app/dev', '{developer,manager}', TRUE)");
 
-  return { created: counts, demoPin: '1234', demoUsers: demoUsers.map(([name, phone]) => ({ name, phone })) };
+  return { created: counts, demoPin: isPublished() ? null : '1234', demoUsers: demoUsers.map(([name, phone]) => ({ name, phone, pin: demoPins[phone] || null })) };
 }

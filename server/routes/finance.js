@@ -10,7 +10,7 @@ import {
 } from '../providers/engine.js';
 import { getProvider } from '../providers/registry.js';
 import { isSandbox } from '../env.js';
-import { normalizePhone } from '../lib/security.js';
+import { normalizePhone, bankRef, parseBankRef } from '../lib/security.js';
 
 function instScope(ctx, alias, params) {
   if (ctx.user.active_role === 'institution_manager') {
@@ -360,7 +360,7 @@ export function registerFinanceRoutes(r) {
       purpose_id: b.purpose_id ? Number(b.purpose_id) : null, campaign_id: b.campaign_id ? Number(b.campaign_id) : null,
       bank_code: b.bank_code || null, branch_code: b.branch_code || null,
       account_masked: b.account_number ? `****${String(b.account_number).slice(-4)}` : null,
-      token_ref: b.account_number ? `BANK:${b.bank_code}-${b.branch_code}-${b.account_number}` : null,
+      token_ref: bankRef(b.bank_code, b.branch_code, b.account_number),
       notes: b.notes || null, recruiter_user_id: b.recruiter_user_id || null,
     });
     await audit(ctx.user, 'keva_create', 'standing_order', so.id, { amount: so.amount, type: so.type });
@@ -442,7 +442,7 @@ export function registerFinanceRoutes(r) {
     requirePerm(ctx, 'keva.actions');
     const day = Number(ctx.body.day) || 10;
     const chargeDate = ctx.body.charge_date || new Date().toISOString().slice(0, 10);
-    const rows = (await masavRows(day)).filter((x) => x.token_ref?.startsWith('BANK:'));
+    const rows = (await masavRows(day)).filter((x) => parseBankRef(x.token_ref));
     const cfg = (await one("SELECT config FROM providers WHERE key = 'masav'"))?.config || {};
     const pad = (s, n, ch = ' ', left = false) => { s = String(s ?? '').slice(0, n); return left ? s.padStart(n, ch) : s.padEnd(n, ch); };
     const ymd = chargeDate.replaceAll('-', '').slice(2);
@@ -450,7 +450,7 @@ export function registerFinanceRoutes(r) {
     lines.push(`K${pad(cfg.institution_code || '00000000', 8, '0', true)}00${ymd}0001${ymd}${pad(cfg.sending_institution || '00000', 5, '0', true)}${pad('', 6, '0')}${pad('אור יקר צפת', 30)}KOT`);
     let total = 0;
     for (const x of rows) {
-      const [, bank, branch, account] = x.token_ref.match(/^BANK:(\d*)-(\d*)-(\d*)$/) || [];
+      const { bank, branch, account } = parseBankRef(x.token_ref);
       const agorot = Math.round(Number(x.amount) * 100);
       total += agorot;
       lines.push(`1${pad(cfg.institution_code || '00000000', 8, '0', true)}00${pad('', 6, '0')}${pad(bank, 2, '0', true)}${pad(branch, 3, '0', true)}0000${pad(account, 9, '0', true)}0${pad(x.id_number || '', 9, '0', true)}${pad(x.donor_name, 16)}${pad(agorot, 13, '0', true)}${pad(x.id, 20, '0', true)}${ymd}000504${pad('', 18, '0')}  `);
@@ -503,7 +503,7 @@ export function registerFinanceRoutes(r) {
         donor_id: donorId, source: 'masav', type: 'bank', amount, currency: 'ILS', day_of_month: Number(b.day_of_month) || 10,
         start_date: new Date().toISOString().slice(0, 10), status: 'active', bank_code: b.bank_code, branch_code: b.branch_code,
         account_masked: b.account_number ? `****${String(b.account_number).slice(-4)}` : null,
-        token_ref: b.account_number ? `BANK:${b.bank_code}-${b.branch_code}-${b.account_number}` : null,
+        token_ref: bankRef(b.bank_code, b.branch_code, b.account_number),
         recruiter_user_id: ctx.user.id, notes: `נחתם בשטח${b.signature_data ? ' (חתימה דיגיטלית מצורפת)' : ''}`,
       });
       await audit(ctx.user, 'field_keva', 'standing_order', so.id, { amount });

@@ -137,7 +137,7 @@ function DemoTab() {
           <button className="btn primary" disabled={data.total > 0} onClick={() => run(() => api('/demo/seed', { method: 'POST', body: {} }), 'נוצרו נתוני דוגמה').then((r) => { setSeedRes(r); reload(); })}>יצירת נתוני דוגמה</button>
           <button className="btn danger" disabled={!data.total} onClick={() => setClear(true)}>ניקוי נתוני דוגמה</button>
         </div>
-        {seedRes && <div className="notice small" style={{ marginTop: 10 }}>משתמשי דוגמה (קוד 1234): {seedRes.demoUsers.map((u) => `${u.name} ${u.phone}`).join(' · ')}</div>}
+        {seedRes && <div className="notice small" style={{ marginTop: 10 }}>משתמשי דוגמה {seedRes.demoPin ? `(קוד ${seedRes.demoPin})` : '(קודים זמניים - מוצגים פעם אחת בלבד, יש להחליף בכניסה)'}: {seedRes.demoUsers.map((u) => `${u.name} ${u.phone}${!seedRes.demoPin && u.pin ? ` - ${u.pin}` : ''}`).join(' · ')}</div>}
       </div>
       {clear && <Confirm danger confirmWord="מחק נתוני דוגמה" title="ניקוי נתוני דוגמה" text={`יימחקו ${data.total} רשומות מסומנות. נתונים אמיתיים (${data.realRecords}) לא יושפעו.`} onClose={() => setClear(false)}
         onYes={() => run(() => api('/demo/clear', { method: 'POST', body: { confirm: 'מחק נתוני דוגמה' } }), (r) => `נמחקו ${r.total} רשומות`).then(() => { setClear(false); reload(); })} />}

@@ -5,8 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Router, HttpError, makeContext, readBody } from './lib/router.js';
-import { migrate, one, query } from './lib/db.js';
-import { setSecretKey, hashPin, normalizePhone, randomToken } from './lib/security.js';
+import { migrate, one, query, many } from './lib/db.js';
+import { setSecretKey, hashPin, normalizePhone, randomToken, bankRef, parseBankRef } from './lib/security.js';
 import { loadSession, registerAuthRoutes } from './auth.js';
 import { registerCrudRoutes } from './routes/crud.js';
 import { registerFinanceRoutes } from './routes/finance.js';
@@ -75,6 +75,22 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  if (req.headers['x-forwarded-proto'] === 'https') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Content-Security-Policy', [
+    "default-src 'self'",
+    "script-src 'self' https://accounts.google.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' https:",
+    "connect-src 'self' https://accounts.google.com",
+    "frame-src https://accounts.google.com https://maps.google.com https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
+    "frame-ancestors 'self' https://replit.com https://*.replit.com https://*.replit.dev",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; '));
   const ctx = makeContext(req, res);
   const { pathname } = ctx.url;
   if (!pathname.startsWith('/api/')) {
@@ -140,8 +156,18 @@ async function seedInstitutions() {
 let dbReady = false;
 let dbError = null;
 
+async function encryptPlainBankRefs() {
+  const rows = await many("SELECT id, token_ref FROM standing_orders WHERE token_ref LIKE 'BANK:%'");
+  for (const r of rows) {
+    const b = parseBankRef(r.token_ref);
+    if (b) await query('UPDATE standing_orders SET token_ref = $2 WHERE id = $1', [r.id, bankRef(b.bank, b.branch, b.account)]);
+  }
+  if (rows.length) console.log(`[security] הוצפנו ${rows.length} פרטי חשבון בנק`);
+}
+
 async function initDb() {
   await migrate();
+  await encryptPlainBankRefs();
   await ensureDefaults();
   await seedInstitutions();
   await bootstrapOwner();
