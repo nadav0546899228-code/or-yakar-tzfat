@@ -20,6 +20,15 @@ async function googleConfig() {
   return { clientId: clientId.trim(), allowed, owner };
 }
 
+const VALID_INVITE_ROLES = ['manager', 'vp', 'treasurer', 'institution_manager', 'aid_coordinator', 'call_agent', 'recruiter', 'secretary', 'advisor', 'accountant'];
+export function invites() {
+  return String(process.env.INVITE_EMAILS || '').split(/[,\s]+/).map((x) => x.trim()).filter(Boolean).map((x) => {
+    const [email, roles = 'manager'] = x.split(':');
+    // מתכנת לא ניתן להזמנה - רק דרך OWNER_EMAIL
+    return { email: email.toLowerCase(), roles: roles.split('+').filter((r) => VALID_INVITE_ROLES.includes(r)) };
+  }).filter((x) => x.email.includes('@') && x.roles.length);
+}
+
 async function verifyIdToken(credential, clientId) {
   let r;
   try {
@@ -52,6 +61,15 @@ export function registerGoogleRoutes(r, { createSession, bestRole }) {
       // כניסה ראשונה: בעלים לפי OWNER_EMAIL, אחרת משתמש פעיל עם אותו מייל
       if (owner && g.email === owner) u = await one('SELECT * FROM users WHERE is_owner = TRUE ORDER BY id LIMIT 1');
       if (!u) u = await one('SELECT * FROM users WHERE LOWER(email) = $1 AND active = TRUE AND google_sub IS NULL ORDER BY id LIMIT 1', [g.email]);
+      // הזמנות קבועות מה-Secret INVITE_EMAILS (פורמט: email:role[+role],email:role) - יוצר משתמש בכניסה הראשונה
+      if (!u) {
+        const inv = invites().find((x) => x.email === g.email);
+        if (inv) {
+          u = await one('INSERT INTO users (name, email, roles, google_sub) VALUES ($1,$2,$3,$4) RETURNING *', [g.name || g.email, g.email, inv.roles, g.sub]);
+          await audit(null, 'user_create_invite', 'user', u.id, { email: g.email, roles: inv.roles });
+          await notify({ title: 'משתמש חדש נכנס עם Google', body: `${u.name} · ${g.email} · ${inv.roles.join(', ')}`, link: '/app/users', roles: ['developer', 'manager'] });
+        }
+      }
       if (!u) {
         await audit(null, 'google_login_denied', 'user', null, { email: g.email });
         throw new HttpError(403, `החשבון ${g.email} לא מורשה. יש לבקש מהמנהל להוסיף את המייל לפרופיל המשתמש`);

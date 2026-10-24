@@ -290,8 +290,8 @@ function UserForm({ u, roles, actor, onClose, onDone }) {
     <Modal title={u.id ? 'עריכת משתמש' : 'משתמש חדש'} onClose={onClose} footer={<><button className="btn primary" onClick={() => save(false)}>שמירה</button><button className="btn" onClick={onClose}>ביטול</button></>}>
       <div className="form-grid">
         <Field label="שם *"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-        <Field label="טלפון *"><input className="input" type="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
-        <Field label="מייל"><input className="input" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
+        <Field label="טלפון (לכניסה בקוד)"><input className="input" type="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
+        <Field label="מייל Google (לכניסה עם Google)"><input className="input" type="email" dir="ltr" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         <Field label="מוסד (למנהל מוסד)"><RefPicker res="institutions" value={f.institution_id} onChange={(v) => setF({ ...f, institution_id: v })} /></Field>
         <div className="full"><label className="small muted">תפקידים</label><div className="row" style={{ marginTop: 6 }}>
           {Object.entries(roles).filter(([k]) => k !== 'donor' && (k !== 'developer' || actor.active_role === 'developer')).map(([k, r]) => <label key={k} className="check" style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px' }}><input type="checkbox" checked={f.roles.includes(k)} onChange={() => toggle(k)} />{r.label}</label>)}

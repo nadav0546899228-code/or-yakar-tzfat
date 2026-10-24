@@ -197,18 +197,20 @@ export function registerAuthRoutes(r) {
   r.post('/api/users', async (ctx) => {
     requirePerm(ctx, 'users.manage');
     const { name, phone, email, roles = [], institution_id, pin } = ctx.body;
-    if (!name || !phone) throw new HttpError(400, 'שם וטלפון הם שדות חובה');
+    if (!name || (!phone && !email)) throw new HttpError(400, 'יש להזין שם, וטלפון או מייל (מייל - לכניסה עם Google)');
     for (const role of roles) {
       if (!ROLES[role]) throw new HttpError(400, `תפקיד לא מוכר: ${role}`);
       if (!canManageRole([ctx.user.active_role], role)) throw new HttpError(403, `אין הרשאה להעניק את התפקיד ${ROLES[role].label}`);
     }
     if (roles.includes('developer') && !ctx.body.confirm_developer) throw new HttpError(409, 'הוספת הרשאת מתכנת דורשת אישור מפורש', { needConfirm: 'developer' });
-    const p = normalizePhone(phone);
-    if (await one('SELECT id FROM users WHERE phone = $1', [p])) throw new HttpError(400, 'מספר הטלפון כבר קיים');
+    const p = phone ? normalizePhone(phone) : null;
+    if (p && await one('SELECT id FROM users WHERE phone = $1', [p])) throw new HttpError(400, 'מספר הטלפון כבר קיים');
+    const em = email ? String(email).trim().toLowerCase() : null;
+    if (em && await one('SELECT id FROM users WHERE LOWER(email) = $1', [em])) throw new HttpError(400, 'המייל כבר קיים אצל משתמש אחר');
     const tempPin = pin || String(Math.floor(100000 + Math.random() * 900000));
     const u = await one(
       `INSERT INTO users (name, phone, email, roles, institution_id, pin_hash, must_change_pin) VALUES ($1,$2,$3,$4,$5,$6,TRUE) RETURNING id`,
-      [name, p, email || null, roles, institution_id || null, hashPin(tempPin)],
+      [name, p, em, roles, institution_id || null, hashPin(tempPin)],
     );
     await audit(ctx.user, 'user_create', 'user', u.id, { name, roles });
     ctx.json(200, { id: u.id, temp_pin: tempPin });
