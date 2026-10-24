@@ -43,8 +43,8 @@ await esbuild.build({
 }
 
 fs.writeFileSync(path.join(out, 'index.html'), fs.readFileSync(path.join(root, 'client', 'index.html'), 'utf8').replaceAll('__V__', v));
-fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
-  id: '/app', name: 'מוסדות אור יקר צפת', short_name: 'אור יקר', description: 'מערכת ניהול תורמים וגיוס משאבים',
+const manifest = (dev) => JSON.stringify({
+  id: dev ? '/app?env=dev' : '/app', name: dev ? 'אור יקר - אתר פיתוח' : 'מוסדות אור יקר צפת', short_name: dev ? 'אור יקר פיתוח' : 'אור יקר', description: 'מערכת ניהול תורמים וגיוס משאבים',
   start_url: '/app', scope: '/', display: 'standalone', orientation: 'portrait', dir: 'rtl', lang: 'he',
   background_color: '#ffffff', theme_color: '#16357a',
   icons: [
@@ -52,7 +52,9 @@ fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
     { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
     { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
   ],
-}, null, 2));
+}, null, 2);
+fs.writeFileSync(path.join(out, 'manifest.webmanifest'), manifest(false));
+fs.writeFileSync(path.join(out, 'manifest-dev.webmanifest'), manifest(true));
 fs.writeFileSync(path.join(out, 'build.json'), JSON.stringify({ build_id: v, built_at: new Date().toISOString() }));
 fs.writeFileSync(path.join(out, 'robots.txt'), 'User-agent: *\nDisallow: /app\nDisallow: /login\nDisallow: /api\n');
 console.log('build ok');

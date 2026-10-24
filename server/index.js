@@ -15,7 +15,7 @@ import { registerDiagRoutes, logError } from './routes/diag.js';
 import { registerSettlementRoutes } from './routes/settlements.js';
 import { ensureDefaults } from './settings.js';
 import { runDailyAutomations } from './automations.js';
-import { envInfo } from './env.js';
+import { envInfo, isPublished } from './env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -52,7 +52,30 @@ function rateLimited(key, limit, windowMs) {
   return arr.length > limit;
 }
 
+// באתר הפיתוח: סמלים, תמונת שיתוף ושם אפליקציה עם סימון "אתר פיתוח"
+const DEV_ASSETS = { '/manifest.webmanifest': '/manifest-dev.webmanifest', '/og-image.png': '/og-image-dev.png',
+  '/icon-180.png': '/icon-dev-180.png', '/icon-192.png': '/icon-dev-192.png', '/icon-512.png': '/icon-dev-512.png', '/icon-maskable-512.png': '/icon-dev-maskable-512.png' };
+function siteOrigin(req) {
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (!/^[a-z0-9.-]+(:\d+)?$/i.test(host)) return '';
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'http' && /^localhost|^127\./.test(host) ? 'http' : 'https';
+  return `${proto}://${host}`;
+}
+let indexCache = null;
+function sendIndex(req, res) {
+  const file = path.join(PUBLIC, 'index.html');
+  if (!fs.existsSync(file)) return false;
+  const mtime = fs.statSync(file).mtimeMs;
+  if (!indexCache || indexCache.mtime !== mtime) indexCache = { mtime, html: fs.readFileSync(file, 'utf8') };
+  const html = indexCache.html.replaceAll('__ORIGIN__', siteOrigin(req));
+  res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
+  res.end(html);
+  return true;
+}
+
 function serveStatic(req, res, pathname) {
+  if (!isPublished() && DEV_ASSETS[pathname]) pathname = DEV_ASSETS[pathname];
+  if (pathname === '/' || pathname === '/index.html') return sendIndex(req, res);
   let file = path.normalize(path.join(PUBLIC, pathname));
   if (!file.startsWith(PUBLIC)) return false;
   if (fs.existsSync(file) && fs.statSync(file).isFile()) {
@@ -62,13 +85,7 @@ function serveStatic(req, res, pathname) {
     fs.createReadStream(file).pipe(res);
     return true;
   }
-  file = path.join(PUBLIC, 'index.html');
-  if (fs.existsSync(file)) {
-    res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
-    fs.createReadStream(file).pipe(res);
-    return true;
-  }
-  return false;
+  return sendIndex(req, res);
 }
 
 const server = http.createServer(async (req, res) => {
