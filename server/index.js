@@ -32,7 +32,7 @@ registerFinanceRoutes(router);
 registerSystemRoutes(router);
 registerDiagRoutes(router);
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
-router.get('/api/health', async (ctx) => ctx.json(200, { ok: true, ...envInfo() }));
+router.get('/api/health', async (ctx) => ctx.json(200, { ok: true, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() }));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -81,6 +81,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   try {
+    if (!dbReady && pathname !== '/api/health') {
+      throw new HttpError(503, process.env.DATABASE_URL ? 'המערכת מתחברת למסד הנתונים, נסו שוב בעוד רגע' : 'לאתר זה עדיין לא הוגדר מסד נתונים (DATABASE_URL). יש ליצור מסד לאתר המפורסם ב-Replit');
+    }
     const match = router.match(req.method, pathname);
     if (!match) throw new HttpError(404, 'נתיב לא קיים');
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
@@ -101,12 +104,12 @@ const server = http.createServer(async (req, res) => {
     if (!res.headersSent) ctx.json(204, {});
   } catch (e) {
     const status = e.status || 500;
-    if (status >= 500) {
+    if (status >= 500 && status !== 503) {
       console.error(`[${req.method} ${pathname}]`, e);
       logError({ source: 'server', path: `${req.method} ${pathname}`, message: e.message, stack: e.stack, userId: ctx.user?.id || null });
     }
-    const errId = status >= 500 ? `E-${Date.now().toString(36)}` : undefined;
-    ctx.json(status, { error: status >= 500 ? `שגיאת שרת (${errId}). הפרטים נשמרו ביומן השרת` : e.message, ...(e.extra || {}) });
+    const errId = status >= 500 && status !== 503 ? `E-${Date.now().toString(36)}` : undefined;
+    ctx.json(status, { error: status >= 500 && status !== 503 ? `שגיאת שרת (${errId}). הפרטים נשמרו ביומן השרת` : e.message, ...(e.extra || {}) });
   }
 });
 
@@ -132,12 +135,31 @@ async function seedInstitutions() {
   for (const [i, [name, color]] of list.entries()) await query('INSERT INTO institutions (name, color, sort) VALUES ($1,$2,$3)', [name, color, i]);
 }
 
-async function start() {
+let dbReady = false;
+let dbError = null;
+
+async function initDb() {
   await migrate();
   await ensureDefaults();
   await seedInstitutions();
   await bootstrapOwner();
+}
+
+async function start() {
+  // השרת עולה מיד (כדי שהפרסום לא ייכשל), והמסד מאותחל ברקע עם ניסיונות חוזרים
   server.listen(PORT, '0.0.0.0', () => console.log(`[or-yakar] פועל על פורט ${PORT} | ${envInfo().label}`));
+  for (let attempt = 1; !dbReady; attempt++) {
+    try {
+      await initDb();
+      dbReady = true;
+      dbError = null;
+      console.log('[db] המסד מוכן');
+    } catch (e) {
+      dbError = e.message;
+      console.error(`[db] ניסיון ${attempt} נכשל:`, e.message);
+      await new Promise((r) => setTimeout(r, Math.min(30000, 3000 * attempt)));
+    }
+  }
   // אוטומציות יומיות (בדיקה כל שעה, ריצה פעם ביום)
   let lastRun = '';
   setInterval(async () => {

@@ -38,7 +38,7 @@ function Root() {
       if (icon && d.org.icon_url) icon.href = d.org.icon_url;
     }).catch(setErr);
   }, []);
-  if (err) return <div className="empty">לא ניתן לטעון את האתר כרגע. נסו לרענן.</div>;
+  if (err) return <div className="empty">לא ניתן לטעון את האתר כרגע. נסו לרענן.<div className="small muted" style={{ marginTop: 8 }}>{err.message}</div></div>;
   if (!site) return <Spinner />;
   if (path === '/login') { document.title = `כניסה - ${site.org.short_name}`; return <Login org={site.org} />; }
   if (path.startsWith('/app')) { document.title = `מערכת - ${site.org.short_name}`; return <AppShell site={site} />; }
