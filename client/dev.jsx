@@ -303,21 +303,90 @@ function UserForm({ u, roles, actor, onClose, onDone }) {
   );
 }
 
+const AUDIT_ACTIONS = {
+  login: 'כניסה למערכת', login_google: 'כניסה עם Google', login_failed: 'ניסיון כניסה שנכשל', google_login_denied: 'כניסת Google נדחתה',
+  pin_reset: 'איפוס קוד', profile_update: 'עדכון פרופיל', impersonate_start: 'תחילת התחזות', impersonate_stop: 'סיום התחזות',
+  user_create: 'יצירת משתמש', user_create_invite: 'משתמש חדש מהזמנה', user_update: 'עדכון משתמש', user_unlock: 'שחרור נעילה',
+  create: 'יצירה', update: 'עדכון', delete: 'מחיקה', export: 'ייצוא', import_donors: 'ייבוא תורמים', donor_merge: 'איחוד כפילויות',
+  tx_create: 'רישום תרומה', tx_update: 'עדכון תרומה', keva_create: 'הוראת קבע חדשה', document_issue: 'הפקת קבלה', document_cancel: 'ביטול קבלה',
+  masav_file: 'קובץ מס"ב', masav_returns: 'החזרות מס"ב', settlements_import: 'ייבוא דוח זיכויים', settlements_batch_delete: 'מחיקת דוח זיכויים',
+  bulk_message: 'שליחת הודעה לקבוצה', call_outcome: 'תיעוד שיחה', calls_generate: 'יצירת רשימת שיחות', field_collect: 'גבייה בשטח', field_keva: 'הו"ק מהשטח',
+  automations_run: 'הרצת אוטומציות', provider_save: 'שמירת הגדרות ספק', provider_sync: 'סנכרון ספק', provider_test: 'בדיקת חיבור ספק', webhook: 'עדכון מספק',
+  settings_update: 'עדכון הגדרות', demo_seed: 'יצירת נתוני דוגמה', demo_clear: 'מחיקת נתוני דוגמה', diag_rotate: 'החלפת מפתח דוח מצב', diag_clear_errors: 'ניקוי יומן שגיאות',
+};
+const AUDIT_ENTITIES = {
+  user: 'משתמש', donor: 'תורם', donors: 'תורמים', transaction: 'תרומה', standing_order: 'הוראת קבע', document: 'קבלה', provider: 'ספק',
+  settings: 'הגדרות', masav: 'מס"ב', settlements: 'זיכויי אשראי', call_task: 'שיחה', call_tasks: 'שיחות', messages: 'הודעות', automations: 'אוטומציות',
+  demo: 'נתוני דוגמה', diag: 'דוח מצב', institutions: 'מוסד', purposes: 'מטרה', campaigns: 'קמפיין', donor_dates: 'תאריך', interactions: 'תיעוד',
+  pledges: 'התחייבות', tzedaka_boxes: 'קופת צדקה', box_collections: 'פריקת קופה', spiritual_orders: 'מבצע רוחני', events: 'אירוע', event_guests: 'מוזמן',
+  aid_requests: 'בקשת סיוע', materials: 'חומר לתורמים', segments: 'פילוח', contact_messages: 'פנייה מהאתר', messages_out: 'הודעה',
+};
+const AUDIT_KEYS = {
+  email: 'מייל', roles: 'תפקידים', target: 'יעד', name: 'שם', phone: 'טלפון', amount: 'סכום', count: 'כמות', rows: 'שורות', provider: 'ספק',
+  reason: 'סיבה', number: 'מספר', status: 'סטטוס', ok: 'הצליח', error: 'שגיאה', imported: 'יובאו', matched: 'הותאמו', duplicates: 'כפולים', batch: 'דוח',
+};
+function auditValue(k, v, roles) {
+  if (v === null || v === undefined || v === '') return '-';
+  if (k === 'roles' && Array.isArray(v)) return v.map((r) => roles?.[r]?.label || r).join(', ');
+  if (typeof v === 'boolean') return v ? 'כן' : 'לא';
+  if (Array.isArray(v)) return v.join(', ');
+  if (typeof v === 'object') return Object.entries(v).map(([a, b]) => `${AUDIT_KEYS[a] || a}: ${typeof b === 'object' ? JSON.stringify(b) : b}`).join(' · ');
+  return String(v);
+}
+function AuditDetails({ details, roles }) {
+  if (!details || typeof details !== 'object') return null;
+  const entries = Object.entries(details).filter(([, v]) => v !== undefined);
+  if (!entries.length) return null;
+  return (
+    <div className="audit-details">
+      {entries.slice(0, 8).map(([k, v]) => (
+        <div key={k}><span className="muted">{AUDIT_KEYS[k] || k}:</span> <bdi>{auditValue(k, v, roles)}</bdi></div>
+      ))}
+    </div>
+  );
+}
+
 export function AuditPage() {
+  const { meta } = useContext(AppCtx);
+  const [roles, setRoles] = useState(null);
+  useEffect(() => { api('/auth/me').then((d) => setRoles(d.roles)).catch(() => {}); }, []);
   const [f, setF] = useState({ action: '', entity: '', from: '', impersonated: '' });
   const [page, setPage] = useState(1);
   const { data } = useApi(`/audit${qs({ ...f, page })}`);
+  const entityLabel = (e) => AUDIT_ENTITIES[e] || meta?.resources?.[e]?.label || e || '';
   return (
     <div>
       <div className="page-head"><h1>יומן פעולות</h1></div>
       <div className="toolbar">
-        <input className="input" placeholder="פעולה" value={f.action} onChange={(e) => setF({ ...f, action: e.target.value })} />
-        <input className="input" placeholder="ישות (donors, transaction…)" value={f.entity} onChange={(e) => setF({ ...f, entity: e.target.value })} />
-        <input className="input" type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} />
+        <select className="input" value={f.action} onChange={(e) => setF({ ...f, action: e.target.value })}>
+          <option value="">כל הפעולות</option>
+          {Object.entries(AUDIT_ACTIONS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <select className="input" value={f.entity} onChange={(e) => setF({ ...f, entity: e.target.value })}>
+          <option value="">כל הנושאים</option>
+          {Object.entries(AUDIT_ENTITIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <input className="input" type="date" value={f.from} onChange={(e) => setF({ ...f, from: e.target.value })} title="מתאריך" />
         <label className="check small"><input type="checkbox" checked={f.impersonated === 'true'} onChange={(e) => setF({ ...f, impersonated: e.target.checked ? 'true' : '' })} />רק בהתחזות</label>
       </div>
-      {!data ? <Spinner /> : <div className="table-wrap"><table className="t"><thead><tr><th>מתי</th><th>משתמש</th><th>פעולה</th><th>ישות</th><th>פרטים</th></tr></thead>
-        <tbody>{data.rows.map((a) => <tr key={a.id}><td className="small nowrap">{datetime(a.at)}</td><td>{a.user_name || 'מערכת'}{a.impersonator_name && <div className="small" style={{ color: 'var(--bad)' }}>בהתחזות ע"י {a.impersonator_name}</div>}</td><td><Tag>{a.action}</Tag></td><td className="small">{a.entity} {a.entity_id}</td><td className="small" style={{ maxWidth: 420, wordBreak: 'break-word', direction: 'ltr', textAlign: 'left' }}>{a.details ? JSON.stringify(a.details).slice(0, 300) : ''}</td></tr>)}</tbody></table></div>}
+      {!data ? <Spinner /> : !data.rows.length ? <div className="empty">אין פעולות להצגה</div> : (
+        <div className="audit-list">
+          {data.rows.map((a) => (
+            <div key={a.id} className="audit-item">
+              <div className="audit-top">
+                <Tag kind={/failed|denied|delete|cancel/.test(a.action) ? 'bad' : /login/.test(a.action) ? 'info' : ''}>{AUDIT_ACTIONS[a.action] || a.action}</Tag>
+                <span className="small muted num">{datetime(a.at)}</span>
+              </div>
+              <div className="audit-who">
+                <b>{a.user_name || 'מערכת'}</b>
+                {a.entity && <span className="muted"> · {entityLabel(a.entity)}{a.entity_id ? ` #${a.entity_id}` : ''}</span>}
+              </div>
+              {a.impersonator_name && <div className="small" style={{ color: 'var(--bad)' }}>בהתחזות על ידי {a.impersonator_name}</div>}
+              <AuditDetails details={a.details} roles={roles} />
+            </div>
+          ))}
+        </div>
+      )}
       <div className="pager"><button className="btn sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>הקודם</button><span className="small">עמוד {page}</span><button className="btn sm" disabled={!data || data.rows.length < 100} onClick={() => setPage(page + 1)}>הבא</button></div>
     </div>
   );
