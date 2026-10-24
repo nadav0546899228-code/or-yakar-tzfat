@@ -48,9 +48,9 @@ const manifest = (dev) => JSON.stringify({
   start_url: '/app', scope: '/', display: 'standalone', orientation: 'portrait', dir: 'rtl', lang: 'he',
   background_color: '#ffffff', theme_color: '#16357a',
   icons: [
-    { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-    { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
-    { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+    { src: `/icon-192.png?v=${v}`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+    { src: `/icon-512.png?v=${v}`, sizes: '512x512', type: 'image/png', purpose: 'any' },
+    { src: `/icon-maskable-512.png?v=${v}`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
   ],
 }, null, 2);
 fs.writeFileSync(path.join(out, 'manifest.webmanifest'), manifest(false));
