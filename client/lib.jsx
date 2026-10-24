@@ -297,14 +297,18 @@ export function UpdateBanner() {
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
   }, []);
   if (!newer) return null;
+  // עדכון חובה: חלון שחוסם את המסך עד לעדכון, בלי אפשרות לדחות
   return (
-    <div className="update-bar" role="status">
-      <span>יש גרסה חדשה של המערכת</span>
-      <button className="btn sm gold" onClick={async () => {
-        try { const regs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((regs || []).map((r) => r.update())); } catch { /* */ }
-        window.location.reload();
-      }}>עדכון עכשיו</button>
-      <button className="btn sm ghost" style={{ color: '#fff' }} onClick={() => setNewer(false)} aria-label="אחר כך">אחר כך</button>
+    <div className="update-lock" role="alertdialog" aria-modal="true" aria-labelledby="upd-t">
+      <div className="update-card">
+        <div className="update-icon">↻</div>
+        <h3 id="upd-t">יש גרסה חדשה של המערכת</h3>
+        <p>כדי להמשיך לעבוד יש לעדכן לגרסה החדשה. העדכון לוקח כמה שניות.</p>
+        <button className="btn gold" onClick={async () => {
+          try { const regs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((regs || []).map((r) => r.update())); } catch { /* */ }
+          window.location.reload();
+        }}>עדכון עכשיו</button>
+      </div>
     </div>
   );
 }

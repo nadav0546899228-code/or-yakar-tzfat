@@ -5,6 +5,7 @@ import { ResourcePage, DonorCard, TransactionsPage, KevaPage, DocumentsPage } fr
 import { CallsPage, FieldPage, CalendarPage, EventPage, MessagesPage, ReportsPage, MasavPage, DuplicatesPage } from './ops.jsx';
 import { DevPage, UsersPage, AuditPage, ProfilePage, SettingsPage } from './dev.jsx';
 import { SettlementsPage } from './settlements.jsx';
+import { InstallPrompt, HelpPage } from './onboarding.jsx';
 
 // תפריט לפי הרשאה. perm = המפתח בשרת (roles.js)
 const MENU = [
@@ -16,7 +17,7 @@ const MENU = [
   { to: '/app/documents', label: 'קבלות ומסמכים', icon: '🧾', perm: 'docs.read' },
   { grp: 'גיוס ושימור' },
   { to: '/app/calls', label: 'מוקד טלפוני', icon: '☎', perm: 'calls.read', badge: 'tasks' },
-  { to: '/app/field', label: 'אפליקציית שטח', icon: '📱', perm: 'field.use' },
+  { to: '/app/field', label: 'אפליקציית שטח', short: 'שטח', icon: '📱', perm: 'field.use' },
   { to: '/app/calendar', label: 'לוח שנה עברי', icon: '📅', perm: 'donors.read' },
   { to: '/app/messages', label: 'פילוח ותפוצה', icon: '✉', perm: 'messages.send' },
   { to: '/app/r/pledges', label: 'התחייבויות ונדרים', icon: '✍', perm: 'tx.read' },
@@ -39,6 +40,8 @@ const MENU = [
   { to: '/app/settings', label: 'הגדרות העמותה', icon: '⚙', perm: 'settings.org' },
   { to: '/app/audit', label: 'יומן פעולות', icon: '📜', perm: 'audit.read' },
   { to: '/app/dev', label: 'מסך המתכנת', icon: '</>', perm: 'dev.only', dev: true },
+  { grp: 'עזרה' },
+  { to: '/app/help', label: 'מדריך שימוש והתקנה', icon: '❓', perm: 'staff' },
 ];
 
 // ההרשאות מגיעות מהשרת (מקור אמת אחד) ונטענות בכניסה
@@ -237,6 +240,7 @@ const ROUTES = [
   ['/app/settings', SettingsPage],
   ['/app/profile', ProfilePage],
   ['/app/dev', DevPage],
+  ['/app/help', HelpPage],
 ];
 
 export function AppShell({ site }) {
@@ -300,10 +304,11 @@ export function AppShell({ site }) {
         </div>
       </div>
       <nav className="bottom-nav">
-        {bottom.map((m) => <Link key={m.to} to={m.to}><span style={{ fontSize: 18 }}>{m.icon}</span>{m.label.split(' ')[0]}</Link>)}
+        {bottom.map((m) => <Link key={m.to} to={m.to}><span style={{ fontSize: 18 }}>{m.icon}</span>{m.short || m.label.split(' ')[0]}</Link>)}
         <a href="#" onClick={(e) => { e.preventDefault(); setSideOpen(true); }}><span style={{ fontSize: 18 }}>☰</span>עוד</a>
       </nav>
       {user.must_change_pin && !me.impersonator && <ForcePin onDone={loadMe} />}
+      {!user.must_change_pin && !me.impersonator && <InstallPrompt user={user} />}
     </AppCtx.Provider>
   );
 }
