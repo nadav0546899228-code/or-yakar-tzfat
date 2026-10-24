@@ -279,7 +279,7 @@ export function PublicSite({ data }) {
     content = (
       <>
         <div className="page-hero"><div className="inner"><h1>{page.title}</h1>{page.kicker && <div className="kicker">{page.kicker}</div>}
-          {key === 'ahuza' && page.phone && <div className="row" style={{ marginTop: 14 }}><a className="btn gold" href={phoneHref(page.phone)}>להזמנה חייגו {page.phone}</a><a className="btn" href={waHref(page.phone)} target="_blank" rel="noopener">וואטסאפ</a></div>}
+          {key === 'ahuza' && page.phone && <div className="row" style={{ marginTop: 14 }}><a className="btn gold" href={phoneHref(page.phone)}>להזמנה חייגו <bdi dir="ltr">{page.phone}</bdi></a><a className="btn" href={waHref(page.phone)} target="_blank" rel="noopener">וואטסאפ</a></div>}
         </div></div>
         {key === 'contact' ? <ContactPage org={org} /> : page.sections.map((s, i) => <Section key={i} s={s} />)}
       </>

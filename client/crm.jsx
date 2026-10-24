@@ -298,7 +298,7 @@ export function DonorCard({ params }) {
           <div className="grow">
             <h1 style={{ fontSize: 22, margin: 0 }}>{name} {d.is_vip && <Tag kind="purple">VIP</Tag>} {d.is_overseas && <Tag kind="info">חו"ל</Tag>} {d.is_demo && <Tag kind="demo">דוגמה</Tag>} {d.no_contact && <Tag kind="bad">לא ליצור קשר</Tag>}</h1>
             <div className="row small muted" style={{ marginTop: 4 }}>
-              {d.phone && <a className="num" href={phoneHref(d.phone)}>{d.phone}</a>}
+              {d.phone && <a className="num" href={phoneHref(d.phone)}><bdi dir="ltr">{d.phone}</bdi></a>}
               {d.email && <a href={`mailto:${d.email}`}>{d.email}</a>}
               {d.city && <span>{d.city}</span>}
               {d.recruiter_name && <span>נציג: {d.recruiter_name}</span>}

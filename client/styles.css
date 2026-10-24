@@ -289,7 +289,7 @@ html, body { overflow-x: hidden; max-width: 100%; }
   .topbar .topbar-name { display: none; }
   .topbar select.input { font-size: 13px; min-height: 32px; padding: 4px 8px; }
   .kpi .value { font-size: 20px; }
-  .grid2 { grid-template-columns: 1fr; }
+  .grid2 { grid-template-columns: 1fr !important; }
 }
 
 .update-bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 300; background: var(--primary-dark); color: #fff; padding: 8px 10px 8px 14px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.3); display: flex; align-items: center; gap: 10px; font-size: 14px; max-width: calc(100vw - 24px); }
@@ -325,3 +325,12 @@ html, body { overflow-x: hidden; max-width: 100%; }
 .audit-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 .audit-who { margin-top: 6px; }
 .audit-details { margin-top: 6px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+
+/* תאי גריד לא מתרחבים מעבר לרוחב המסך בגלל תוכן ארוך */
+.grid2 > *, .kpis > * { min-width: 0; }
+.card, .call-card { max-width: 100%; }
+
+/* מוקד: ברשימה גלילה במחשב; בטלפון רשימה קצרה ומעבר לכרטיס השיחה בלחיצה */
+.call-list { max-height: 75vh; overflow-y: auto; }
+.call-detail { scroll-margin-top: 70px; }
+@media (max-width: 900px) { .call-list { max-height: 45vh; } }

@@ -201,7 +201,7 @@ export function RefPicker({ res, value, onChange, placeholder = 'הקלידו ל
       {open && (
         <div className="ac-list">
           {allowEmpty && value && <div onMouseDown={() => pick(null)} className="muted">— ללא —</div>}
-          {items.map((it, i) => <div key={it.id} className={i === hl ? 'hl' : ''} onMouseDown={() => pick(it)}>{it.label}{it.phone ? <span className="muted small"> · {it.phone}</span> : null}</div>)}
+          {items.map((it, i) => <div key={it.id} className={i === hl ? 'hl' : ''} onMouseDown={() => pick(it)}>{it.label}{it.phone ? <span className="muted small"> · <bdi dir="ltr">{it.phone}</bdi></span> : null}</div>)}
           {!items.length && <div className="muted">אין תוצאות</div>}
         </div>
       )}

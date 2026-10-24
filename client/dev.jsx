@@ -138,7 +138,7 @@ function DemoTab() {
           <button className="btn primary" disabled={data.total > 0} onClick={() => run(() => api('/demo/seed', { method: 'POST', body: {} }), 'נוצרו נתוני דוגמה').then((r) => { setSeedRes(r); reload(); })}>יצירת נתוני דוגמה</button>
           <button className="btn danger" disabled={!data.total} onClick={() => setClear(true)}>ניקוי נתוני דוגמה</button>
         </div>
-        {seedRes && <div className="notice small" style={{ marginTop: 10 }}>משתמשי דוגמה {seedRes.demoPin ? `(קוד ${seedRes.demoPin})` : '(קודים זמניים - מוצגים פעם אחת בלבד, יש להחליף בכניסה)'}: {seedRes.demoUsers.map((u) => `${u.name} ${u.phone}${!seedRes.demoPin && u.pin ? ` - ${u.pin}` : ''}`).join(' · ')}</div>}
+        {seedRes && <div className="notice small" style={{ marginTop: 10 }}>משתמשי דוגמה {seedRes.demoPin ? `(קוד ${seedRes.demoPin})` : '(קודים זמניים - מוצגים פעם אחת בלבד, יש להחליף בכניסה)'}: {seedRes.demoUsers.map((u) => `${u.name} $<bdi dir="ltr">{u.phone}</bdi>${!seedRes.demoPin && u.pin ? ` - ${u.pin}` : ''}`).join(' · ')}</div>}
       </div>
       {clear && <Confirm danger confirmWord="מחק נתוני דוגמה" title="ניקוי נתוני דוגמה" text={`יימחקו ${data.total} רשומות מסומנות. נתונים אמיתיים (${data.realRecords}) לא יושפעו.`} onClose={() => setClear(false)}
         onYes={() => run(() => api('/demo/clear', { method: 'POST', body: { confirm: 'מחק נתוני דוגמה' } }), (r) => `נמחקו ${r.total} רשומות`).then(() => { setClear(false); reload(); })} />}
@@ -401,7 +401,7 @@ export function ProfilePage() {
     <div className="stack" style={{ maxWidth: 560 }}>
       <div className="page-head"><h1>הפרופיל שלי</h1></div>
       <div className="card stack">
-        <dl className="dl"><dt>שם</dt><dd>{user.name}</dd><dt>טלפון</dt><dd className="num">{user.phone}</dd><dt>מייל</dt><dd>{user.email || '-'}</dd></dl>
+        <dl className="dl"><dt>שם</dt><dd>{user.name}</dd><dt>טלפון</dt><dd className="num"><bdi dir="ltr">{user.phone}</bdi></dd><dt>מייל</dt><dd>{user.email || '-'}</dd></dl>
         <div className="row"><button className="btn" onClick={() => setOpen('phone')}>עריכת טלפון ומייל</button><button className="btn" onClick={() => setOpen('pin')}>החלפת קוד</button></div>
         {open === 'phone' && <div className="stack"><Field label="טלפון"><input className="input" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field><Field label="מייל"><input className="input" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field><button className="btn primary" onClick={() => save({ phone: f.phone, email: f.email })}>שמירה</button></div>}
         {open === 'pin' && <div className="stack"><Field label="קוד נוכחי"><input className="input" type="password" inputMode="numeric" value={f.current_pin} onChange={(e) => setF({ ...f, current_pin: e.target.value })} /></Field><Field label="קוד חדש (4-8 ספרות)"><input className="input" type="password" inputMode="numeric" value={f.pin} onChange={(e) => setF({ ...f, pin: e.target.value })} /></Field><button className="btn primary" onClick={() => save({ current_pin: f.current_pin, pin: f.pin })}>שמירה</button></div>}

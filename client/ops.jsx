@@ -31,19 +31,19 @@ export function CallsPage() {
       </div>
       {!data ? <Spinner /> : !rows.length ? <div className="card empty">אין שיחות בתור כרגע 🎉</div> : (
         <div className="grid2" style={{ gridTemplateColumns: 'minmax(260px, 1fr) 2fr' }}>
-          <div className="stack" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+          <div className="stack call-list">
             {rows.map((r, i) => (
-              <div key={r.id} className={`call-card ${i === idx ? 'active' : ''}`} style={{ cursor: 'pointer', padding: 10 }} onClick={() => setIdx(i)}>
+              <div key={r.id} className={`call-card ${i === idx ? 'active' : ''}`} style={{ cursor: 'pointer', padding: 10 }} onClick={() => { setIdx(i); if (window.innerWidth < 900) setTimeout(() => document.querySelector('.call-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>
                 <div className="row between"><b>{r.donor_name}</b><Tag kind={r.priority === 1 ? 'bad' : 'info'}>{CALL_REASON[r.reason]}</Tag></div>
-                <div className="small muted">{r.phone} · {r.agent || 'לא משויך'} {r.status !== 'open' && `· ${r.status === 'callback' ? 'לחזור' : 'לא ענה'}`}</div>
+                <div className="small muted"><bdi dir="ltr">{r.phone}</bdi> · {r.agent || 'לא משויך'} {r.status !== 'open' && `· ${r.status === 'callback' ? 'לחזור' : 'לא ענה'}`}</div>
               </div>
             ))}
           </div>
           {cur && (
-            <div className="call-card active stack">
+            <div className="call-card active stack call-detail">
               <div className="row between">
                 <div><h2 style={{ margin: 0 }}><Link to={`/app/donors/${cur.donor_id}`}>{cur.donor_name}</Link> {cur.is_vip && <Tag kind="purple">VIP</Tag>}</h2><div className="muted">{cur.city}</div></div>
-                <div className="row"><a className="btn primary" href={phoneHref(cur.phone)}>☎ {cur.phone}</a>{cur.phone && <a className="btn" href={waHref(cur.phone)} target="_blank" rel="noopener">💬</a>}</div>
+                <div className="row"><a className="btn primary" href={phoneHref(cur.phone)}>☎ <bdi dir="ltr">{cur.phone}</bdi></a>{cur.phone && <a className="btn" href={waHref(cur.phone)} target="_blank" rel="noopener">💬</a>}</div>
               </div>
               <div className="kpis">
                 <div className="kpi"><div className="label">סיבת השיחה</div><div className="value" style={{ fontSize: 17 }}>{CALL_REASON[cur.reason]}</div></div>
@@ -229,7 +229,7 @@ export function EventPage({ params }) {
           {guests.map((g) => (
             <tr key={g.id}>
               <td>{g.donor_id ? <Link to={`/app/donors/${g.donor_id}`}>{g.display_name}</Link> : g.display_name}</td>
-              <td className="num">{g.display_phone && <a href={waHref(g.display_phone, `שלום, נשמח לראותך ב${ev.name} ב-${date(ev.date)}. נא לאשר הגעה.`)} target="_blank" rel="noopener">{g.display_phone}</a>}</td>
+              <td className="num">{g.display_phone && <a href={waHref(g.display_phone, `שלום, נשמח לראותך ב${ev.name} ב-${date(ev.date)}. נא לאשר הגעה.`)} target="_blank" rel="noopener"><bdi dir="ltr">{g.display_phone}</bdi></a>}</td>
               <td><select className="input" style={{ minHeight: 32 }} value={g.rsvp} onChange={(e) => upd(g, { rsvp: e.target.value })}>{meta.options.rsvp.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></td>
               <td>{g.seats}</td>
               <td><input className="input" style={{ width: 70, minHeight: 32 }} defaultValue={g.table_no || ''} onBlur={(e) => e.target.value !== (g.table_no || '') && upd(g, { table_no: e.target.value })} /></td>
@@ -310,7 +310,7 @@ export function MessagesPage() {
         <div className="grid2">
           <div className="card"><h3>{rows.length} תורמים</h3>
             <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}><table className="t"><thead><tr><th>שם</th><th>טלפון</th><th>עיר</th><th>שנה אחרונה</th></tr></thead>
-              <tbody>{rows.map((r) => <tr key={r.id}><td><Link to={`/app/donors/${r.id}`}>{r.name}</Link></td><td className="num">{r.phone}</td><td>{r.city}</td><td className="num">{money(r.year_total)}</td></tr>)}</tbody></table></div>
+              <tbody>{rows.map((r) => <tr key={r.id}><td><Link to={`/app/donors/${r.id}`}>{r.name}</Link></td><td className="num"><bdi dir="ltr">{r.phone}</bdi></td><td>{r.city}</td><td className="num">{money(r.year_total)}</td></tr>)}</tbody></table></div>
           </div>
           <div className="card stack"><h3>שליחה לרשימה</h3>
             <div className="row">{[['whatsapp', 'וואטסאפ'], ['sms', 'SMS'], ['email', 'מייל']].map(([k, l]) => <button key={k} className={`btn sm ${channel === k ? 'primary' : ''}`} onClick={() => setChannel(k)}>{l}</button>)}</div>
