@@ -18,6 +18,7 @@ try { esbuild = await import('esbuild'); } catch {
 }
 fs.mkdirSync(path.join(out, 'assets'), { recursive: true });
 
+try {
 await esbuild.build({
   entryPoints: [path.join(root, 'client', 'main.jsx')],
   bundle: true,
@@ -31,6 +32,14 @@ await esbuild.build({
   nodePaths: process.env.EXTRA_NODE_PATH ? [process.env.EXTRA_NODE_PATH] : [],
   logLevel: 'info',
 });
+} catch (e) {
+  // אם הבנייה נכשלת (למשל בשרת הפרסום) - משתמשים בגרסה הבנויה מראש שנשמרת בגיט
+  if (fs.existsSync(path.join(out, 'assets', 'app.js')) && !process.env.STRICT_BUILD) {
+    console.warn('הבנייה נכשלה - משתמשים בגרסה הבנויה מראש שבתיקיית public:', e.message.split('\n')[0]);
+    process.exit(0);
+  }
+  throw e;
+}
 
 const v = Date.now().toString(36);
 fs.writeFileSync(path.join(out, 'index.html'), fs.readFileSync(path.join(root, 'client', 'index.html'), 'utf8').replaceAll('__V__', v));
