@@ -311,3 +311,10 @@ html, body { overflow-x: hidden; max-width: 100%; }
 /* רקע כהה מאחורי התפריט הפתוח בטלפון - לחיצה עליו סוגרת את התפריט */
 .side-bg { display: none; }
 @media (max-width: 900px) { .side-bg { display: block; position: fixed; inset: 0; z-index: 89; background: rgba(13, 20, 40, .4); } }
+
+/* חלון התראות - בטלפון נפתח ברוחב המסך ולא נחתך */
+.notif-panel { position: absolute; left: 0; top: 110%; width: 340px; max-height: 420px; overflow-y: auto; z-index: 60; padding: 10px; }
+.notif-bg { position: fixed; inset: 0; z-index: 59; }
+@media (max-width: 600px) {
+  .notif-panel { position: fixed; top: 64px; left: 10px; right: 10px; width: auto; max-height: 70vh; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+}

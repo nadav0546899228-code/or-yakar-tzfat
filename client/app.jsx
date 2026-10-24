@@ -127,8 +127,9 @@ function Notifications() {
   return (
     <div style={{ position: 'relative' }}>
       <button className="btn ghost icon" onClick={() => setOpen(!open)} aria-label="התראות">🔔{data?.unread ? <span className="tag bad" style={{ marginInlineStart: 2 }}>{data.unread}</span> : null}</button>
+      {open && <div className="notif-bg" onClick={() => setOpen(false)} aria-hidden="true" />}
       {open && (
-        <div className="card" style={{ position: 'absolute', left: 0, top: '110%', width: 340, maxHeight: 420, overflowY: 'auto', zIndex: 60, padding: 10 }}>
+        <div className="card notif-panel">
           <div className="row between"><b>התראות</b><button className="btn sm ghost" onClick={async () => { await api('/notifications/read', { method: 'POST', body: { all: true } }); reload(); }}>סימון הכל כנקרא</button></div>
           {(data?.rows || []).map((n) => (
             <div key={n.id} style={{ padding: '8px 4px', borderBottom: '1px solid var(--line)', opacity: n.read ? 0.6 : 1, cursor: n.link ? 'pointer' : 'default' }}
