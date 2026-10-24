@@ -17,8 +17,9 @@ function ProviderCard({ p, caps, onChange }) {
         <b>{p.label}</b>
         <div className="row" style={{ gap: 4 }}>
           <span className={`dot ${dot}`} title={p.last_error || p.last_status || 'לא נבדק'} />
-          {p.status === 'real' ? <Tag kind="ok">מתאם מוכן</Tag> : <Tag kind="warn">הדמיה עד קבלת API</Tag>}
-          {p.enabled && <Tag kind="info">פעיל</Tag>}
+          {p.status === 'real'
+            ? (p.enabled ? <Tag kind="ok">מחובר</Tag> : <Tag kind="warn">לא מחובר - ממתין למפתחות</Tag>)
+            : <Tag kind="warn">הדמיה עד קבלת API</Tag>}
         </div>
       </div>
       <div className="row" style={{ gap: 4 }}>{p.capabilities.map((c) => <span key={c} className="tag" style={{ fontSize: 11 }}>{caps[c] || c}</span>)}</div>
