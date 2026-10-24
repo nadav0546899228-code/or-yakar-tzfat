@@ -28,6 +28,7 @@ export async function demoCounts() {
 export async function clearDemo() {
   const before = await demoCounts();
   await query('DELETE FROM donor_links WHERE donor_id IN (SELECT id FROM donors WHERE is_demo = TRUE)');
+  await query("DELETE FROM sync_runs WHERE message LIKE 'דוגמה:%'");
   await query('UPDATE transactions SET document_id = NULL WHERE is_demo = TRUE');
   for (const t of DEMO_TABLES) await query(`DELETE FROM ${t} WHERE is_demo = TRUE`);
   await query('DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE is_demo = TRUE)');
@@ -261,6 +262,9 @@ export async function seedDemo() {
   // אירוע (דינר)
   const ev = await insert('events', { name: `דינר השנתי ${year}`, date: daysAgo(-40), location: 'אולמי הגליל, צפת', goal: 500000, campaign_id: campaigns[3].id, is_demo: true });
   inc('events');
+  await insert('events', { name: 'ערב הוקרה לתורמים', date: daysAgo(90), location: 'בית הכנסת האר"י, צפת', goal: 150000, is_demo: true });
+  await insert('events', { name: 'הילולת רבי משה קורדוברו', date: daysAgo(-15), location: 'אחוזת קורדוברו, צפת', goal: 80000, is_demo: true });
+  inc('events', 2);
   for (let i = 0; i < 30; i++) {
     const d = donors[i];
     const rsvp = rnd(['yes', 'yes', 'pending', 'no', 'maybe']);
@@ -291,8 +295,17 @@ export async function seedDemo() {
     inc('automations');
   }
 
-  await insert('contact_messages', { name: 'ישראל ישראלי', phone: '0529998877', subject: 'הצטרפות לישיבה', message: 'שלום, הבן שלי מעוניין לשמוע על הישיבה. אשמח שיחזרו אליי.', is_demo: true });
-  inc('contact_messages');
+  const contacts = [
+    ['ישראל ישראלי', '0529998877', 'הצטרפות לישיבה', 'שלום, הבן שלי מעוניין לשמוע על הישיבה. אשמח שיחזרו אליי.'],
+    ['רחל כהן', '0541112233', 'תרומה לעילוי נשמה', 'אני רוצה לתרום לעילוי נשמת אבי ולהזמין קדיש ולימוד. איך עושים את זה?'],
+    ['משה לוי', '0533334455', 'קבלה על תרומה', 'תרמתי בחודש שעבר דרך נדרים פלוס ולא קיבלתי קבלה. אשמח לעזרה.'],
+    ['אסתר מזרחי', '0525556677', 'סיוע למשפחה', 'אנחנו משפחה מצפת שזקוקה לעזרה לקראת החגים. למי פונים?'],
+    ['David Goldberg', '+12125550100', 'Visit to Tzfat', 'We are visiting Tzfat next month and would love to visit the yeshiva.'],
+  ];
+  for (const [name, phone, subject, message] of contacts) {
+    await insert('contact_messages', { name, phone, subject, message, is_demo: true });
+    inc('contact_messages');
+  }
   await insert('segments', { name: 'תורמי VIP', filter: { is_vip: true }, is_demo: true });
   await insert('segments', { name: 'רדומים 12 חודשים', filter: { dormant_months: 12 }, is_demo: true });
   await insert('segments', { name: 'תורמי חו"ל', filter: { is_overseas: true }, is_demo: true });
@@ -310,7 +323,54 @@ export async function seedDemo() {
     });
     inc('settlements');
   }
-  await query("INSERT INTO notifications (title, body, link, roles, is_demo) VALUES ('ברוכים הבאים למערכת', 'נוצרו נתוני דוגמה לבדיקה. ניתן לנקות אותם ממסך המתכנת', '/app/dev', '{developer,manager}', TRUE)");
+  // קישורי תורמים למערכות חיצוניות (מאיפה התורם מוכר: נדרים, JGive, קהילות)
+  for (const [i, d] of donors.entries()) {
+    if (i % 3 === 0) continue;
+    const src = ['nedarim', 'jgive', 'kehilot'][i % 3];
+    await query('INSERT INTO donor_links (donor_id, source, external_id, raw) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [d.id, src, `DEMO-${src}-${1000 + i}`, JSON.stringify({ demo: true })]);
+    inc('donor_links');
+  }
+  // יומן הודעות יוצאות: תודות, ברכות, תזכורות וקבלות שנשלחו
+  const msgTpl = [
+    ['whatsapp', null, 'תודה רבה על תרומתך למוסדות אור יקר! הקבלה מצורפת.'],
+    ['whatsapp', null, 'מזל טוב ליום הולדתך! כל משפחת אור יקר מברכת אותך.'],
+    ['sms', null, 'שלום, הוראת הקבע שלך לא עברה החודש. נשמח שתעדכן אמצעי תשלום.'],
+    ['email', 'קבלה על תרומה', 'מצורפת קבלה לפי סעיף 46 על תרומתך. תודה!'],
+    ['email', 'הזמנה לדינר השנתי', 'נשמח לראותך בדינר השנתי של מוסדות אור יקר.'],
+    ['whatsapp', null, 'תזכורת: השבוע חל יום הזיכרון. אברכי הכולל יאמרו קדיש לעילוי הנשמה.'],
+  ];
+  const statuses = ['sent_sandbox', 'sent_sandbox', 'sent_sandbox', 'sent_sandbox', 'sent_sandbox', 'failed', 'queued'];
+  for (let i = 0; i < 60; i++) {
+    const d = rnd(donors);
+    const [channel, subject, body] = rnd(msgTpl);
+    const st = rnd(statuses);
+    await insert('messages_out', {
+      donor_id: d.id, channel, to_addr: channel === 'email' ? (d.email || `demo${i}@example.com`) : (d.phone || '0500000000'),
+      subject, body, status: st, error: st === 'failed' ? 'המספר לא זמין (הדמיה)' : null, at: new Date(Date.now() - Math.floor(Math.random() * 60) * 86400000 - i * 3600000).toISOString(), is_demo: true,
+    });
+    inc('messages_out');
+  }
+  // היסטוריית סנכרון מספקים (הדמיה)
+  for (const [prov, n] of [['nedarim', 6], ['jgive', 3], ['kehilot', 3], ['greeninvoice', 2], ['masav', 2]]) {
+    for (let i = 0; i < n; i++) {
+      const started = new Date(Date.now() - (i * 3 + 1) * 86400000);
+      await query('INSERT INTO sync_runs (provider, started_at, finished_at, status, imported, updated, message) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [prov, started.toISOString(), new Date(started.getTime() + 40000).toISOString(), i === 2 ? 'error' : 'ok', i === 2 ? 0 : 3 + ((i * 7) % 15), (i * 3) % 6, i === 2 ? 'דוגמה: תם הזמן לחיבור, ינוסה שוב' : 'דוגמה: סנכרון הדמיה']);
+      inc('sync_runs');
+    }
+  }
+  const notifs = [
+    ['ברוכים הבאים למערכת', 'נוצרו נתוני דוגמה לבדיקה. ניתן לנקות אותם ממסך המתכנת', '/app/dev', '{developer,manager}'],
+    ['תרומה גבוהה התקבלה', 'תרומה של 18,000 ש"ח דרך נדרים פלוס (דוגמה)', '/app/transactions', '{developer,manager,vp,treasurer}'],
+    ['3 חיובי הו"ק נכשלו', 'נוצרו משימות שיחה לחזרה לתורמים (דוגמה)', '/app/keva', '{developer,manager,vp,treasurer,secretary}'],
+    ['פנייה חדשה מהאתר', 'ישראל ישראלי ביקש שיחזרו אליו (דוגמה)', '/app/r/contact_messages', '{developer,manager,secretary}'],
+    ['קופות צדקה לפריקה', 'יש קופות שהגיע מועד הפריקה שלהן (דוגמה)', '/app/r/tzedaka_boxes', '{developer,manager,secretary,recruiter}'],
+    ['דוח זיכויים נקלט', 'דוח ישראכרט נקלט, יש שורות לבדיקה ידנית (דוגמה)', '/app/settlements', '{developer,manager,treasurer}'],
+  ];
+  for (const [title, body, link, roles] of notifs) {
+    await query('INSERT INTO notifications (title, body, link, roles, is_demo) VALUES ($1,$2,$3,$4,TRUE)', [title, body, link, roles]);
+    inc('notifications');
+  }
 
   return { created: counts, demoPin: isPublished() ? null : '1234', demoUsers: demoUsers.map(([name, phone]) => ({ name, phone, pin: demoPins[phone] || null })) };
 }

@@ -32,6 +32,7 @@ export const OPTIONS = {
     keva_cancelled: 'הו"ק בוטלה / הסתיימה', keva_failed: 'חיוב הו"ק נכשל', new_donor: 'תורם חדש', first_donation: 'תרומה ראשונה', recovery: 'איחולי החלמה (ידני)',
   }),
   channel: opt({ whatsapp: 'וואטסאפ', sms: 'SMS', email: 'מייל', task: 'משימת שיחה', notify: 'התראה למנהל' }),
+  msgStatus: opt({ sent_sandbox: 'נשלח (הדמיה)', queued: 'ממתין לשליחה', sent: 'נשלח', delivered: 'נמסר', failed: 'נכשל' }),
   hebMonth: HEB_MONTHS.map((m) => ({ value: m.key, label: m.he })),
 };
 
@@ -390,7 +391,7 @@ export const RESOURCES = {
       { key: 'to_addr', label: 'נמען', type: 'text' },
       { key: 'subject', label: 'נושא', type: 'text' },
       { key: 'body', label: 'תוכן', type: 'textarea' },
-      { key: 'status', label: 'סטטוס', type: 'text' },
+      { key: 'status', label: 'סטטוס', type: 'select', options: 'msgStatus' },
     ],
     list: ['at', 'channel', 'donor_id', 'to_addr', 'body', 'status'],
     search: ['to_addr', 'body'],
