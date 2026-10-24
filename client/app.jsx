@@ -318,7 +318,7 @@ export function AppShell({ site }) {
               </select>
             )}
             <Notifications />
-            <Link to="/app/profile" className="btn ghost sm">{user.name}</Link>
+            <Link to="/app/profile" className="btn ghost sm topbar-name">{user.name}</Link>
             <button className="btn sm" onClick={async () => { await api('/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}>יציאה</button>
           </div>
           <div className="content">{Page ? <Page params={params} /> : <div className="empty">העמוד לא נמצא</div>}</div>

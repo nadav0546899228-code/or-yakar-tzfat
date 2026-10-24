@@ -277,3 +277,17 @@ table.t tr.sel td { background: #eef4ff; }
   .side, .topbar, .bottom-nav, .env-bar, .toolbar, .btn { display: none !important; }
   .app { display: block; }
 }
+
+/* תיקון מובייל: מניעת גלישה רוחבית ופס עליון צפוף */
+html, body { overflow-x: hidden; max-width: 100%; }
+.app, .main { max-width: 100vw; overflow-x: clip; }
+.topbar { flex-wrap: wrap; row-gap: 6px; }
+.topbar select.input { max-width: 46vw; }
+@media (max-width: 900px) {
+  .side:not(.open) { visibility: hidden; }
+  .topbar { padding: 6px 10px; gap: 6px; }
+  .topbar .topbar-name { display: none; }
+  .topbar select.input { font-size: 13px; min-height: 32px; padding: 4px 8px; }
+  .kpi .value { font-size: 20px; }
+  .grid2 { grid-template-columns: 1fr; }
+}
