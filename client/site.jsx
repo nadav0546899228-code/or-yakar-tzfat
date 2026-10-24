@@ -289,7 +289,7 @@ export function PublicSite({ data }) {
   }
   return (
     <>
-      {env?.sandbox && <div className="env-bar">{env.label}</div>}
+      {env?.show_banner && <div className="env-bar">סביבת פיתוח{env.sandbox ? ' - כל החיבורים במצב הדמיה (Sandbox)' : ''}</div>}
       <Header site={site} org={org} />
       <main>{content}</main>
       {key !== 'contact' && <CtaBand org={org} />}

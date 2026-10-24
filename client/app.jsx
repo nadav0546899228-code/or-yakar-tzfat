@@ -291,7 +291,7 @@ export function AppShell({ site }) {
   const org = site.org;
   return (
     <AppCtx.Provider value={{ user, meta, demoMode, reloadMe: loadMe, org }}>
-      {site.env?.sandbox && <div className="env-bar">{site.env.label}</div>}
+      {site.env?.show_banner && <div className="env-bar">סביבת פיתוח{site.env.sandbox ? ' - כל החיבורים במצב הדמיה (Sandbox)' : ''}</div>}
       {me.impersonator && <div className="imp-bar">מצב התחזות: מחובר כ{user.name} (על ידי {me.impersonator.name}) - כל פעולה נרשמת ביומן<button className="btn sm" onClick={async () => { await api('/auth/impersonate-stop', { method: 'POST' }); window.location.href = '/app/users'; }}>סיום התחזות</button></div>}
       <div className="app">
         <aside className={`side ${sideOpen ? 'open' : ''}`}>
