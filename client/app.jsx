@@ -76,6 +76,33 @@ export function can(user, perm) {
   return (PERMS[perm] || []).includes(user.active_role);
 }
 
+// כפתור כניסה עם Google - מוצג רק כשהוגדר GOOGLE_CLIENT_ID
+function GoogleButton() {
+  const ref = React.useRef();
+  const [cfg, setCfg] = useState(null);
+  useEffect(() => { api('/auth/google-config').then(setCfg).catch(() => setCfg({})); }, []);
+  useEffect(() => {
+    if (!cfg?.client_id) return;
+    const init = () => {
+      window.google.accounts.id.initialize({
+        client_id: cfg.client_id,
+        callback: async (resp) => {
+          try { await api('/auth/google', { method: 'POST', body: { credential: resp.credential } }); window.location.href = '/app'; } catch (err) { toast(err.message, 'error'); }
+        },
+      });
+      window.google.accounts.id.renderButton(ref.current, { theme: 'outline', size: 'large', text: 'signin_with', locale: 'he', width: 300 });
+    };
+    if (window.google?.accounts?.id) { init(); return; }
+    const sc = document.createElement('script');
+    sc.src = 'https://accounts.google.com/gsi/client';
+    sc.async = true;
+    sc.onload = init;
+    document.head.appendChild(sc);
+  }, [cfg?.client_id]);
+  if (!cfg?.client_id) return null;
+  return <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}><span className="small muted">או</span><div ref={ref} /></div>;
+}
+
 export function Login({ org }) {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
@@ -92,6 +119,7 @@ export function Login({ org }) {
         <Field label="טלפון"><input className="input" type="tel" autoComplete="username" required value={phone} onChange={(e) => setPhone(e.target.value)} autoFocus /></Field>
         <Field label="קוד אישי"><input className="input" type="password" inputMode="numeric" autoComplete="current-password" required value={pin} onChange={(e) => setPin(e.target.value)} /></Field>
         <button className="btn primary" disabled={busy}>{busy ? 'נכנס…' : 'כניסה'}</button>
+        <GoogleButton />
         <Link to="/" className="small muted" style={{ textAlign: 'center' }}>חזרה לאתר</Link>
       </form>
     </div>

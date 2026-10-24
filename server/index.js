@@ -119,8 +119,8 @@ async function bootstrapOwner() {
   if (c.c > 0) return;
   const phone = normalizePhone(process.env.OWNER_PHONE || '0500000000');
   const pin = process.env.OWNER_PIN || String(Math.floor(100000 + Math.random() * 900000));
-  await query("INSERT INTO users (name, phone, roles, pin_hash, must_change_pin, is_owner) VALUES ($1,$2,'{developer,manager}',$3,TRUE,TRUE)",
-    [process.env.OWNER_NAME || 'מתכנת ראשי', phone, hashPin(pin)]);
+  await query("INSERT INTO users (name, phone, email, roles, pin_hash, must_change_pin, is_owner) VALUES ($1,$2,$3,'{developer,manager}',$4,TRUE,TRUE)",
+    [process.env.OWNER_NAME || 'מתכנת ראשי', phone, (process.env.OWNER_EMAIL || '').trim().toLowerCase() || null, hashPin(pin)]);
   console.log('==============================================');
   console.log(' נוצר חשבון מתכנת ראשון');
   console.log(` טלפון: ${phone}`);

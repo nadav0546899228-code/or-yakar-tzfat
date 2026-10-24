@@ -4,6 +4,7 @@ import { HttpError } from './lib/router.js';
 import { can, ROLES, canManageRole } from './roles.js';
 import { audit } from './audit.js';
 import { isSandbox } from './env.js';
+import { registerGoogleRoutes } from './googleAuth.js';
 
 const COOKIE = 'oy_sess';
 const SESSION_DAYS = 30;
@@ -71,6 +72,7 @@ async function createSession(ctx, { userId = null, donorId = null, role = null, 
 }
 
 export function registerAuthRoutes(r) {
+  registerGoogleRoutes(r, { createSession, bestRole });
   r.post('/api/auth/login', async (ctx) => {
     const phone = normalizePhone(ctx.body.phone);
     const pin = String(ctx.body.pin || '');
