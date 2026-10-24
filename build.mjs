@@ -17,6 +17,7 @@ try { esbuild = await import('esbuild'); } catch {
   }
 }
 fs.mkdirSync(path.join(out, 'assets'), { recursive: true });
+const v = Date.now().toString(36);
 
 try {
 await esbuild.build({
@@ -27,7 +28,7 @@ await esbuild.build({
   target: ['es2020'],
   jsx: 'automatic',
   loader: { '.js': 'jsx', '.jsx': 'jsx' },
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', __BUILD_ID__: JSON.stringify(v) },
   outfile: path.join(out, 'assets', 'app.js'),
   nodePaths: process.env.EXTRA_NODE_PATH ? [process.env.EXTRA_NODE_PATH] : [],
   logLevel: 'info',
@@ -41,7 +42,6 @@ await esbuild.build({
   throw e;
 }
 
-const v = Date.now().toString(36);
 fs.writeFileSync(path.join(out, 'index.html'), fs.readFileSync(path.join(root, 'client', 'index.html'), 'utf8').replaceAll('__V__', v));
 fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
   id: '/app', name: 'מוסדות אור יקר צפת', short_name: 'אור יקר', description: 'מערכת ניהול תורמים וגיוס משאבים',

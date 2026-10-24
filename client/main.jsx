@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
-import { RouterProvider, useRoute, api, Toasts, Spinner } from './lib.jsx';
+import { RouterProvider, useRoute, api, Toasts, Spinner, UpdateBanner } from './lib.jsx';
 import { PublicSite } from './site.jsx';
 import { AppShell, Login } from './app.jsx';
 
@@ -51,5 +51,6 @@ createRoot(document.getElementById('root')).render(
   <RouterProvider>
     <Root />
     <Toasts />
+    <UpdateBanner />
   </RouterProvider>,
 );

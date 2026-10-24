@@ -291,3 +291,8 @@ html, body { overflow-x: hidden; max-width: 100%; }
   .kpi .value { font-size: 20px; }
   .grid2 { grid-template-columns: 1fr; }
 }
+
+.update-bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 300; background: var(--primary-dark); color: #fff; padding: 8px 10px 8px 14px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.3); display: flex; align-items: center; gap: 10px; font-size: 14px; max-width: calc(100vw - 24px); }
+.update-bar { white-space: nowrap; width: max-content; }
+.update-bar span { font-weight: 600; }
+@media (max-width: 600px) { .update-bar { left: 10px; right: 10px; transform: none; width: auto; justify-content: space-between; top: 8px; } }

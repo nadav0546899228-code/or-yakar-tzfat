@@ -281,3 +281,30 @@ export function Logo({ src, alt, className = '' }) {
 export const AppCtx = createContext(null);
 export function useAppCtx() { return useContext(AppCtx); }
 export { useCallback };
+
+// הודעת "יש גרסה חדשה" - בודק כל דקה (ובחזרה ללשונית) אם הגרסה בשרת השתנתה. לא מרענן לבד.
+export function UpdateBanner() {
+  const [newer, setNewer] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line no-undef
+    const mine = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : null;
+    if (!mine) return undefined;
+    const check = () => fetch(`/build.json?t=${Date.now()}`, { cache: 'no-store' }).then((r) => r.json()).then((b) => { if (b.build_id && b.build_id !== mine) setNewer(true); }).catch(() => {});
+    const t = setInterval(check, 60000);
+    const onVis = () => document.visibilityState === 'visible' && check();
+    document.addEventListener('visibilitychange', onVis);
+    check();
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+  if (!newer) return null;
+  return (
+    <div className="update-bar" role="status">
+      <span>יש גרסה חדשה של המערכת</span>
+      <button className="btn sm gold" onClick={async () => {
+        try { const regs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((regs || []).map((r) => r.update())); } catch { /* */ }
+        window.location.reload();
+      }}>עדכון עכשיו</button>
+      <button className="btn sm ghost" style={{ color: '#fff' }} onClick={() => setNewer(false)} aria-label="אחר כך">אחר כך</button>
+    </div>
+  );
+}
