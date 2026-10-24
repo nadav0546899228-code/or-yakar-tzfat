@@ -3,7 +3,7 @@ import { query, one, many, insert } from './lib/db.js';
 import { hashPin } from './lib/security.js';
 
 const DEMO_TABLES = [
-  'messages_out', 'notifications', 'box_collections', 'event_guests', 'call_tasks', 'pledges', 'interactions', 'donor_dates',
+  'settlements', 'messages_out', 'notifications', 'box_collections', 'event_guests', 'call_tasks', 'pledges', 'interactions', 'donor_dates',
   'spiritual_orders', 'aid_requests', 'transactions', 'documents', 'standing_orders', 'events', 'tzedaka_boxes', 'automations',
   'materials', 'segments', 'contact_messages', 'campaigns', 'purposes', 'donors', 'institutions',
 ];
@@ -292,6 +292,19 @@ export async function seedDemo() {
   await insert('segments', { name: 'רדומים 12 חודשים', filter: { dormant_months: 12 }, is_demo: true });
   await insert('segments', { name: 'תורמי חו"ל', filter: { is_overseas: true }, is_demo: true });
   inc('segments', 3);
+  // זיכויי חברות אשראי לדוגמה: רוב תרומות האשראי מותאמות, חלקן ללא התאמה
+  const creditTx = await many("SELECT id, date, amount_ils, card_last4 FROM transactions WHERE is_demo = TRUE AND method = 'credit' AND status = 'paid' AND date < CURRENT_DATE - 7 ORDER BY random() LIMIT 120");
+  const acq = ['isracard', 'cal', 'max'];
+  for (const [i, t] of creditTx.entries()) {
+    const fee = Math.round(Number(t.amount_ils) * 0.007 * 100) / 100;
+    const linked = i % 9 !== 0;
+    await insert('settlements', {
+      acquirer: acq[i % 3], batch: 'demo', transaction_date: t.date, deposit_date: new Date(new Date(t.date).getTime() + 3 * 86400000).toISOString().slice(0, 10),
+      amount_gross: t.amount_ils, fee, amount_net: Number(t.amount_ils) - fee, card_last4: t.card_last4, card_brand: ['Visa', 'Mastercard', 'Isracard'][i % 3],
+      approval_number: String(100000 + i * 37), voucher_number: String(900000 + i), transaction_id: linked ? t.id : null, match_status: linked ? 'auto' : 'unmatched', is_demo: true,
+    });
+    inc('settlements');
+  }
   await query("INSERT INTO notifications (title, body, link, roles, is_demo) VALUES ('ברוכים הבאים למערכת', 'נוצרו נתוני דוגמה לבדיקה. ניתן לנקות אותם ממסך המתכנת', '/app/dev', '{developer,manager}', TRUE)");
 
   return { created: counts, demoPin: '1234', demoUsers: demoUsers.map(([name, phone]) => ({ name, phone })) };

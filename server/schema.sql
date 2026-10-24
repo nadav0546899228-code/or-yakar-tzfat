@@ -491,3 +491,29 @@ CREATE TABLE IF NOT EXISTS segments (
 
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users (google_sub) WHERE google_sub IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS settlements (
+  id BIGSERIAL PRIMARY KEY,
+  acquirer TEXT NOT NULL,
+  batch TEXT,
+  transaction_date DATE,
+  deposit_date DATE,
+  amount_gross NUMERIC(12,2) NOT NULL DEFAULT 0,
+  fee NUMERIC(12,2) NOT NULL DEFAULT 0,
+  amount_net NUMERIC(12,2) NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'ILS',
+  card_last4 TEXT,
+  card_brand TEXT,
+  approval_number TEXT,
+  voucher_number TEXT,
+  installments INTEGER NOT NULL DEFAULT 1,
+  terminal TEXT,
+  transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+  match_status TEXT NOT NULL DEFAULT 'unmatched',
+  matched_by INTEGER,
+  raw JSONB,
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS settle_dedupe_idx ON settlements (acquirer, COALESCE(voucher_number,''), COALESCE(approval_number,''), transaction_date, amount_gross);
+CREATE INDEX IF NOT EXISTS settle_tx_idx ON settlements (transaction_id);

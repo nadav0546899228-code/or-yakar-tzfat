@@ -4,6 +4,7 @@ import { SOURCE_LABELS } from './labels.js';
 import { ResourcePage, DonorCard, TransactionsPage, KevaPage, DocumentsPage } from './crm.jsx';
 import { CallsPage, FieldPage, CalendarPage, EventPage, MessagesPage, ReportsPage, MasavPage, DuplicatesPage } from './ops.jsx';
 import { DevPage, UsersPage, AuditPage, ProfilePage, SettingsPage } from './dev.jsx';
+import { SettlementsPage } from './settlements.jsx';
 
 // תפריט לפי הרשאה. perm = המפתח בשרת (roles.js)
 const MENU = [
@@ -28,6 +29,7 @@ const MENU = [
   { grp: 'בקרה' },
   { to: '/app/reports', label: 'מרכז דוחות', icon: '📊', perm: 'reports.read' },
   { to: '/app/masav', label: 'מס"ב והחזרות', icon: '🏦', perm: 'keva.actions' },
+  { to: '/app/settlements', label: 'זיכויי חברות אשראי', icon: '💳', perm: 'settlements.read' },
   { to: '/app/r/contact_messages', label: 'פניות מהאתר', icon: '📥', perm: 'messages.send', badge: 'contact' },
   { grp: 'הגדרות' },
   { to: '/app/r/institutions', label: 'מוסדות ומטרות', icon: '🏛', perm: 'campaigns.write' },
@@ -39,37 +41,9 @@ const MENU = [
   { to: '/app/dev', label: 'מסך המתכנת', icon: '</>', perm: 'dev.only', dev: true },
 ];
 
-const PERMS = {
-  'dashboard.finance': ['manager', 'treasurer', 'institution_manager', 'accountant'],
-  'donors.read': ['manager', 'treasurer', 'institution_manager', 'call_agent', 'recruiter', 'secretary', 'accountant'],
-  'tx.read': ['manager', 'treasurer', 'institution_manager', 'accountant', 'secretary', 'recruiter'],
-  'keva.read': ['manager', 'treasurer', 'institution_manager', 'accountant', 'call_agent'],
-  'keva.actions': ['manager', 'treasurer'],
-  'docs.read': ['manager', 'treasurer', 'institution_manager', 'accountant', 'secretary'],
-  'docs.issue': ['manager', 'treasurer', 'secretary'],
-  'reports.read': ['manager', 'treasurer', 'institution_manager', 'accountant'],
-  'calls.read': ['manager', 'call_agent', 'secretary'],
-  'calls.manage': ['manager'],
-  'field.use': ['manager', 'recruiter', 'secretary'],
-  'boxes.read': ['manager', 'treasurer', 'recruiter', 'secretary'],
-  'spiritual.read': ['manager', 'secretary', 'call_agent', 'aid_coordinator'],
-  'events.read': ['manager', 'treasurer', 'secretary', 'call_agent'],
-  'aid.read': ['manager', 'aid_coordinator'],
-  'campaigns.write': ['manager'],
-  'settings.org': ['manager'],
-  'automations.write': ['manager'],
-  'messages.send': ['manager', 'treasurer', 'secretary', 'call_agent'],
-  'users.manage': ['manager'],
-  'audit.read': ['manager'],
-  'donors.write': ['manager', 'treasurer', 'call_agent', 'recruiter', 'secretary'],
-  'donors.merge': ['manager', 'treasurer'],
-  'tx.write': ['manager', 'treasurer', 'secretary', 'recruiter'],
-  'tx.actions': ['manager', 'treasurer'],
-  'tx.approve': ['manager', 'treasurer'],
-  'docs.cancel': ['manager', 'treasurer'],
-  'dev.only': [],
-  staff: ['manager', 'treasurer', 'institution_manager', 'aid_coordinator', 'call_agent', 'recruiter', 'secretary', 'accountant'],
-};
+// ההרשאות מגיעות מהשרת (מקור אמת אחד) ונטענות בכניסה
+let PERMS = {};
+export function setPerms(p) { PERMS = p || {}; }
 export function can(user, perm) {
   if (!user) return false;
   if (user.active_role === 'developer') return true;
@@ -255,6 +229,7 @@ const ROUTES = [
   ['/app/messages', MessagesPage],
   ['/app/reports', ReportsPage],
   ['/app/masav', MasavPage],
+  ['/app/settlements', SettlementsPage],
   ['/app/events/:id', EventPage],
   ['/app/r/:res', ({ params }) => <ResourcePage res={params.res} />],
   ['/app/users', UsersPage],
@@ -271,7 +246,7 @@ export function AppShell({ site }) {
   const [sideOpen, setSideOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(() => { try { return localStorage.getItem('oy_demo') || ''; } catch { return ''; } });
   const [counts, setCounts] = useState({});
-  const loadMe = () => api('/auth/me').then((d) => { if (!d.user) { navigate('/login', { replace: true }); return; } setMe(d); });
+  const loadMe = () => api('/auth/me').then((d) => { if (!d.user) { navigate('/login', { replace: true }); return; } setPerms(d.perms); setMe(d); });
   useEffect(() => { loadMe(); }, []);
   useEffect(() => { if (me?.user) api('/meta').then(setMeta).catch(() => {}); }, [me?.user?.active_role]);
   useEffect(() => {

@@ -1,60 +1,67 @@
 // תפקידים, היררכיה והרשאות. משתמש יכול להחזיק כמה תפקידים ולעבור ביניהם (תצוגה פעילה).
+// המפתח 'manager' נשמר מטעמי תאימות - התצוגה שלו היא "מנכ"ל".
 export const ROLES = {
   developer: { label: 'מתכנת', rank: 100 },
-  manager: { label: 'מנהל העמותה', rank: 80 },
+  manager: { label: 'מנכ"ל', rank: 80 },
+  vp: { label: 'סמנכ"ל', rank: 70 },
   treasurer: { label: 'גזבר / הנהלת חשבונות', rank: 60 },
   institution_manager: { label: 'מנהל מוסד', rank: 50 },
   aid_coordinator: { label: 'רכז קהילתי / מרכז הסיוע', rank: 40 },
   call_agent: { label: 'נציג מוקד טלפוני', rank: 30 },
   recruiter: { label: 'מתרים / שליח שטח', rank: 30 },
-  secretary: { label: 'מזכירות', rank: 30 },
+  secretary: { label: 'מזכירה', rank: 30 },
+  advisor: { label: 'יועץ (צפייה בלבד)', rank: 25 },
   accountant: { label: 'רואה חשבון (צפייה)', rank: 20 },
   donor: { label: 'תורם', rank: 5 },
 };
 
-// מי מורשה לנהל משתמשים בכל תפקיד (היררכיה)
+// מי מורשה לנהל משתמשים בכל תפקיד (היררכיה): מתכנת הכל; מנכ"ל כל תפקיד מתחתיו (לא מתכנת ולא מנכ"ל)
 export function canManageRole(actorRoles, targetRole) {
   if (actorRoles.includes('developer')) return true;
-  if (targetRole === 'developer') return false;
-  if (actorRoles.includes('manager')) return targetRole !== 'manager' || false;
+  if (targetRole === 'developer' || targetRole === 'manager') return false;
+  if (actorRoles.includes('manager')) return true;
   return false;
 }
 
-const ALL_STAFF = ['developer', 'manager', 'treasurer', 'institution_manager', 'aid_coordinator', 'call_agent', 'recruiter', 'secretary', 'accountant'];
+const ALL_STAFF = ['developer', 'manager', 'vp', 'treasurer', 'institution_manager', 'aid_coordinator', 'call_agent', 'recruiter', 'secretary', 'advisor', 'accountant'];
+const TOP = ['developer', 'manager', 'vp'];
+const VIEW = ['advisor']; // יועץ: קריאה בלבד
 
 // הרשאות לפי יכולת -> תפקידים
 export const PERMS = {
-  'dashboard.finance': ['developer', 'manager', 'treasurer', 'institution_manager', 'accountant'],
-  'donors.read': ['developer', 'manager', 'treasurer', 'institution_manager', 'call_agent', 'recruiter', 'secretary', 'accountant'],
-  'donors.write': ['developer', 'manager', 'treasurer', 'call_agent', 'recruiter', 'secretary'],
-  'donors.merge': ['developer', 'manager', 'treasurer'],
-  'tx.read': ['developer', 'manager', 'treasurer', 'institution_manager', 'accountant', 'secretary', 'recruiter'],
-  'tx.write': ['developer', 'manager', 'treasurer', 'secretary', 'recruiter'],
-  'tx.approve': ['developer', 'manager', 'treasurer'],
-  'tx.actions': ['developer', 'manager', 'treasurer'],
-  'keva.read': ['developer', 'manager', 'treasurer', 'institution_manager', 'accountant', 'call_agent'],
-  'keva.actions': ['developer', 'manager', 'treasurer'],
-  'docs.read': ['developer', 'manager', 'treasurer', 'institution_manager', 'accountant', 'secretary'],
-  'docs.issue': ['developer', 'manager', 'treasurer', 'secretary'],
-  'docs.cancel': ['developer', 'manager', 'treasurer'],
-  'reports.read': ['developer', 'manager', 'treasurer', 'institution_manager', 'accountant'],
-  'calls.read': ['developer', 'manager', 'call_agent', 'secretary'],
-  'calls.manage': ['developer', 'manager'],
-  'field.use': ['developer', 'manager', 'recruiter', 'secretary'],
-  'boxes.read': ['developer', 'manager', 'treasurer', 'recruiter', 'secretary'],
-  'boxes.write': ['developer', 'manager', 'treasurer', 'recruiter', 'secretary'],
-  'spiritual.read': ['developer', 'manager', 'secretary', 'call_agent', 'aid_coordinator'],
-  'spiritual.write': ['developer', 'manager', 'secretary', 'call_agent'],
-  'events.read': ['developer', 'manager', 'treasurer', 'secretary', 'call_agent'],
-  'events.write': ['developer', 'manager', 'secretary'],
-  'aid.read': ['developer', 'manager', 'aid_coordinator'],
-  'aid.write': ['developer', 'manager', 'aid_coordinator'],
-  'campaigns.write': ['developer', 'manager'],
+  'dashboard.finance': [...TOP, ...VIEW, 'treasurer', 'institution_manager', 'accountant'],
+  'donors.read': [...TOP, ...VIEW, 'treasurer', 'institution_manager', 'call_agent', 'recruiter', 'secretary', 'accountant'],
+  'donors.write': [...TOP, 'treasurer', 'call_agent', 'recruiter', 'secretary'],
+  'donors.merge': [...TOP, 'treasurer'],
+  'tx.read': [...TOP, ...VIEW, 'treasurer', 'institution_manager', 'accountant', 'secretary', 'recruiter'],
+  'tx.write': [...TOP, 'treasurer', 'secretary', 'recruiter'],
+  'tx.approve': [...TOP, 'treasurer'],
+  'tx.actions': [...TOP, 'treasurer'],
+  'keva.read': [...TOP, ...VIEW, 'treasurer', 'institution_manager', 'accountant', 'call_agent'],
+  'keva.actions': [...TOP, 'treasurer'],
+  'docs.read': [...TOP, ...VIEW, 'treasurer', 'institution_manager', 'accountant', 'secretary'],
+  'docs.issue': [...TOP, 'treasurer', 'secretary'],
+  'docs.cancel': [...TOP, 'treasurer'],
+  'reports.read': [...TOP, ...VIEW, 'treasurer', 'institution_manager', 'accountant'],
+  'settlements.read': [...TOP, ...VIEW, 'treasurer', 'accountant'],
+  'settlements.write': [...TOP, 'treasurer'],
+  'calls.read': [...TOP, 'call_agent', 'secretary'],
+  'calls.manage': [...TOP],
+  'field.use': [...TOP, 'recruiter', 'secretary'],
+  'boxes.read': [...TOP, ...VIEW, 'treasurer', 'recruiter', 'secretary'],
+  'boxes.write': [...TOP, 'treasurer', 'recruiter', 'secretary'],
+  'spiritual.read': [...TOP, ...VIEW, 'secretary', 'call_agent', 'aid_coordinator'],
+  'spiritual.write': [...TOP, 'secretary', 'call_agent'],
+  'events.read': [...TOP, ...VIEW, 'treasurer', 'secretary', 'call_agent'],
+  'events.write': [...TOP, 'secretary'],
+  'aid.read': [...TOP, ...VIEW, 'aid_coordinator'],
+  'aid.write': [...TOP, 'aid_coordinator'],
+  'campaigns.write': [...TOP],
   'settings.org': ['developer', 'manager'],
-  'automations.write': ['developer', 'manager'],
-  'messages.send': ['developer', 'manager', 'treasurer', 'secretary', 'call_agent'],
+  'automations.write': [...TOP],
+  'messages.send': [...TOP, 'treasurer', 'secretary', 'call_agent'],
   'users.manage': ['developer', 'manager'],
-  'audit.read': ['developer', 'manager'],
+  'audit.read': [...TOP],
   'dev.only': ['developer'],
   'staff': ALL_STAFF,
 };

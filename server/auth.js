@@ -1,7 +1,7 @@
 import { one, query, many } from './lib/db.js';
 import { hashPin, verifyPin, randomToken, sha256, normalizePhone } from './lib/security.js';
 import { HttpError } from './lib/router.js';
-import { can, ROLES, canManageRole } from './roles.js';
+import { can, ROLES, canManageRole, PERMS } from './roles.js';
 import { audit } from './audit.js';
 import { isSandbox } from './env.js';
 import { registerGoogleRoutes } from './googleAuth.js';
@@ -120,7 +120,7 @@ export function registerAuthRoutes(r) {
     if (!ctx.user) return ctx.json(200, { user: null });
     let impersonator = null;
     if (ctx.user.impersonator_id) impersonator = await one('SELECT id, name FROM users WHERE id = $1', [ctx.user.impersonator_id]);
-    ctx.json(200, { user: ctx.user, impersonator, roles: ROLES });
+    ctx.json(200, { user: ctx.user, impersonator, roles: ROLES, perms: PERMS });
   });
 
   r.post('/api/auth/role', async (ctx) => {

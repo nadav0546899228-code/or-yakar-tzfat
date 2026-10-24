@@ -4,6 +4,7 @@ export const CATEGORIES = {
   donations: 'פלטפורמות תרומה',
   documents: 'קבלות וחשבוניות',
   clearing: 'סליקת אשראי',
+  acquirers: 'חברות כרטיסי אשראי (זיכויים)',
   bank: 'הוראות קבע בנקאיות ובנקים',
   tax: 'רשות המסים',
   accounting: 'הנהלת חשבונות',
@@ -114,6 +115,24 @@ export const PROVIDERS = [
     key: 'icredit', label: 'iCredit (ריווחית)', category: 'clearing', status: 'sim',
     fields: [secret('group_key', 'Group Private Token')],
     capabilities: ['clearing_page', 'refund'],
+  },
+  {
+    key: 'isracard', label: 'ישראכרט', category: 'acquirers', status: 'real', portal: 'https://www.isracard.co.il',
+    note: 'סולק של ישראכרט, אמריקן אקספרס ומאסטרקארד (חלקי). אין API פתוח לעמותות: מורידים מאתר בית העסק את דוח הזיכויים (CSV/Excel שנשמר כ-CSV) ומעלים במסך "זיכויי חברות אשראי". המערכת מתאימה כל זיכוי לתרומה. כרטיסי ויזה ומאסטרקארד מגיעים דרך החברה שסולקת עבור המסוף.',
+    fields: [f('merchant_number', 'מספר בית עסק'), f('portal_url', 'כתובת אתר בית העסק', { placeholder: 'https://www.isracard.co.il' }), f('deposit_days', 'ימים עד זיכוי (משוער)', { placeholder: '3' })],
+    capabilities: ['settlement_import', 'bank_reconcile', 'portal_link'],
+  },
+  {
+    key: 'cal', label: 'כאל (CAL)', category: 'acquirers', status: 'real', portal: 'https://www.cal-online.co.il',
+    note: 'סולק של ויזה, מאסטרקארד ודיינרס. קליטת דוח זיכויים מאתר כאל לעסקים והתאמה אוטומטית לתרומות.',
+    fields: [f('merchant_number', 'מספר בית עסק'), f('portal_url', 'כתובת אתר בית העסק', { placeholder: 'https://www.cal-online.co.il' }), f('deposit_days', 'ימים עד זיכוי (משוער)', { placeholder: '3' })],
+    capabilities: ['settlement_import', 'bank_reconcile', 'portal_link'],
+  },
+  {
+    key: 'max', label: 'מקס (Max)', category: 'acquirers', status: 'real', portal: 'https://www.max.co.il',
+    note: 'סולק של ויזה ומאסטרקארד. קליטת דוח זיכויים מאתר מקס לעסקים והתאמה אוטומטית לתרומות.',
+    fields: [f('merchant_number', 'מספר בית עסק'), f('portal_url', 'כתובת אתר בית העסק', { placeholder: 'https://www.max.co.il' }), f('deposit_days', 'ימים עד זיכוי (משוער)', { placeholder: '3' })],
+    capabilities: ['settlement_import', 'bank_reconcile', 'portal_link'],
   },
   {
     key: 'masav', label: 'מס"ב - קובץ חיובים', category: 'bank', status: 'real',

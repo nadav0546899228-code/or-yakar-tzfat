@@ -28,6 +28,8 @@ function ProviderCard({ p, caps, onChange }) {
         <button className="btn sm" onClick={() => run(() => api(`/providers/${p.key}/test`, { method: 'POST' }), (r) => r.message).then(onChange)}>בדיקת חיבור</button>
         {p.capabilities.some((c) => ['pull_transactions', 'pull_keva', 'webhook'].includes(c)) && <button className="btn sm" onClick={() => run(() => api(`/providers/${p.key}/sync`, { method: 'POST' }), (r) => r.message).then(onChange)}>סנכרון עכשיו</button>}
         {p.docs && <a className="btn sm ghost" href={p.docs} target="_blank" rel="noopener">תיעוד</a>}
+        {(p.config?.portal_url || p.portal) && <a className="btn sm ghost" href={p.config?.portal_url || p.portal} target="_blank" rel="noopener">לאתר בית העסק</a>}
+        {p.capabilities.includes('settlement_import') && <Link className="btn sm" to="/app/settlements">קליטת דוח זיכויים</Link>}
       </div>
       {open && (
         <div className="stack" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
