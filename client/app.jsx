@@ -287,9 +287,9 @@ export function AppShell({ site }) {
                 <option value="">כל הנתונים</option><option value="hide">בלי נתוני דוגמה</option><option value="only">רק נתוני דוגמה</option>
               </select>
             )}
-            {user.roles.length > 1 && (
-              <select className="input" style={{ width: 'auto', minHeight: 34 }} value={user.active_role} onChange={(e) => switchRole(e.target.value)} title="תצוגה">
-                {user.roles.map((r) => <option key={r} value={r}>תצוגת {me.roles[r]?.label}</option>)}
+            {(user.view_roles || user.roles).length > 1 && (
+              <select className="input" style={{ width: 'auto', minHeight: 34 }} value={user.active_role} onChange={(e) => switchRole(e.target.value)} title="מעבר בין תצוגות">
+                {(user.view_roles || user.roles).map((r) => <option key={r} value={r}>תצוגת {me.roles[r]?.label}</option>)}
               </select>
             )}
             <Notifications />

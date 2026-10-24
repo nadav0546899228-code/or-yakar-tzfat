@@ -31,8 +31,16 @@ export async function loadSession(ctx) {
   }
   const u = await one('SELECT * FROM users WHERE id = $1 AND active = TRUE', [s.user_id]);
   if (!u) return;
-  const role = s.active_role && u.roles.includes(s.active_role) ? s.active_role : bestRole(u.roles);
+  const role = s.active_role && viewRoles(u.roles).includes(s.active_role) ? s.active_role : bestRole(u.roles);
   ctx.user = { ...publicUser(u), active_role: role, impersonator_id: s.impersonator_id };
+}
+
+// תצוגות זמינות למעבר: מתכנת - כל התצוגות; מנכ"ל - כל התצוגות חוץ ממתכנת; אחרים - התפקידים שלהם בלבד
+export function viewRoles(roles = []) {
+  const staff = Object.keys(ROLES).filter((r) => r !== 'donor');
+  if (roles.includes('developer')) return staff;
+  if (roles.includes('manager')) return staff.filter((r) => r !== 'developer');
+  return roles;
 }
 
 export function bestRole(roles = []) {
@@ -46,6 +54,7 @@ export function publicUser(u) {
     phone: u.phone,
     email: u.email,
     roles: u.roles,
+    view_roles: viewRoles(u.roles),
     institution_id: u.institution_id,
     must_change_pin: u.must_change_pin,
     is_owner: u.is_owner,
@@ -126,7 +135,7 @@ export function registerAuthRoutes(r) {
   r.post('/api/auth/role', async (ctx) => {
     requireUser(ctx);
     const role = ctx.body.role;
-    if (!ctx.user.roles.includes(role)) throw new HttpError(400, 'התפקיד אינו משויך למשתמש');
+    if (!viewRoles(ctx.user.roles).includes(role)) throw new HttpError(400, 'התצוגה אינה זמינה למשתמש זה');
     await query('UPDATE sessions SET active_role = $2 WHERE token_hash = $1', [ctx.session.token_hash, role]);
     ctx.json(200, { ok: true });
   });
