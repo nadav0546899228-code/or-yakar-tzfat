@@ -273,6 +273,7 @@ export function AppShell({ site }) {
       {site.env?.show_banner && <div className="env-bar">סביבת פיתוח{site.env.sandbox ? ' - כל החיבורים במצב הדמיה (Sandbox)' : ''}</div>}
       {me.impersonator && <div className="imp-bar">מצב התחזות: מחובר כ{user.name} (על ידי {me.impersonator.name}) - כל פעולה נרשמת ביומן<button className="btn sm" onClick={async () => { await api('/auth/impersonate-stop', { method: 'POST' }); window.location.href = '/app/users'; }}>סיום התחזות</button></div>}
       <div className="app">
+        {sideOpen && <div className="side-bg" onClick={() => setSideOpen(false)} aria-hidden="true" />}
         <aside className={`side ${sideOpen ? 'open' : ''}`}>
           <div className="brand"><span className="logo-chip"><Logo src={org.logo_url} alt="אור יקר" /></span><div><b>{org.short_name}</b><span className="small">ניהול תורמים וגיוס</span></div></div>
           <nav>

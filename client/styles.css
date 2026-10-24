@@ -307,3 +307,7 @@ html, body { overflow-x: hidden; max-width: 100%; }
 /* רשימות צעדים במדריך ובהתקנה */
 .steps-list { margin: 8px 0 0; padding-inline-start: 22px; line-height: 1.7; }
 .steps-list li { margin-bottom: 4px; }
+
+/* רקע כהה מאחורי התפריט הפתוח בטלפון - לחיצה עליו סוגרת את התפריט */
+.side-bg { display: none; }
+@media (max-width: 900px) { .side-bg { display: block; position: fixed; inset: 0; z-index: 89; background: rgba(13, 20, 40, .4); } }
