@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 const DEMO_TABLES = [
   'settlements', 'messages_out', 'notifications', 'box_collections', 'event_guests', 'call_tasks', 'pledges', 'interactions', 'donor_dates',
   'spiritual_orders', 'aid_requests', 'transactions', 'documents', 'standing_orders', 'events', 'tzedaka_boxes', 'automations',
-  'materials', 'segments', 'contact_messages', 'campaigns', 'purposes', 'donors', 'institutions',
+  'materials', 'segments', 'contact_messages', 'board_items', 'boards', 'campaign_teams', 'campaigns', 'purposes', 'donors', 'institutions',
 ];
 
 export async function demoCounts() {
@@ -323,6 +323,54 @@ export async function seedDemo() {
     });
     inc('settlements');
   }
+  // קמפיין גיוס המונים עם דף ציבורי, הכפלה ושגרירים
+  const cfEnd = new Date(Date.now() + 9 * 86400000 + 5 * 3600000).toISOString();
+  const cf = await insert('campaigns', {
+    name: `קמפיין חנוכה ${year} - מאירים את צפת`, kind: 'holiday', goal: 400000, start_date: daysAgo(3), end_date: daysAgo(-9), institution_id: insts[0].id,
+    description: 'מוסדות אור יקר צפת מחזיקים ישיבה, כולל, מדרשה ומרכז סיוע למשפחות הקהילה.\nבקמפיין הזה אנחנו מגייסים את התקציב השנתי לאברכים ולמשפחות שזקוקות לעזרה.\nכל תרומה מוכפלת על ידי קבוצת תורמים שותפים, כך שכל שקל שווה כפליים.',
+    active: true, public_page: true, slug: 'demo-chanuka', headline: 'מאירים את צפת - קמפיין חנוכה של מוסדות אור יקר', matching: 2, matching_text: 'בזכות קבוצת שותפים מחו"ל', amounts: '100, 180, 360, 500, 1000, 1800',
+    end_at: cfEnd, show_donors: true, base_raised: 15000, is_demo: true,
+  });
+  inc('campaigns');
+  const teamDefs = [['הרב יעקב לוי', 'yaakov', 40000], ['בוגרי הישיבה', 'alumni', 60000], ['משפחת מזרחי', 'mizrahi', 25000], ['שגרירי חו"ל', 'overseas', 80000], ['נשות הקהילה', 'nashim', 30000]];
+  const teams = [];
+  for (const [name, slug, goal] of teamDefs) {
+    teams.push(await insert('campaign_teams', { campaign_id: cf.id, name, slug, goal, description: 'מצטרפים אליי לקמפיין ועוזרים לי להגיע ליעד!', active: true, is_demo: true }));
+    inc('campaign_teams');
+  }
+  const msgs = ['לעילוי נשמת אבי מורי', 'בהצלחה רבה!', 'לרפואת כל חולי ישראל', null, null, 'שנזכה לראות נחת', 'חג אורים שמח', null, 'לזכות הילדים'];
+  for (let i = 0; i < 70; i++) {
+    const d = donors[i % donors.length];
+    const amount = rnd([100, 180, 180, 360, 360, 500, 1000, 1800, 250, 52]);
+    const t = await insert('transactions', {
+      donor_id: d.id, source: 'campaign', kind: 'one_time', method: 'credit', amount, currency: 'ILS', amount_ils: amount, date: daysAgo(Math.floor(i / 25)), status: 'paid',
+      campaign_id: cf.id, institution_id: insts[0].id, team_id: i % 4 === 3 ? null : teams[i % teams.length].id, display_name: `${d.first_name} ${d.last_name}`.trim(),
+      is_anonymous: i % 11 === 0, public_message: rnd(msgs), approved: true, is_demo: true,
+    });
+    await query("UPDATE transactions SET serial = 'OY-' || LPAD(id::text, 6, '0'), created_at = now() - ($2 || ' minutes')::interval WHERE id = $1", [t.id, String(i * 37)]);
+    inc('transactions');
+  }
+  // לוחות מודעות לדוגמה
+  const board = await insert('boards', {
+    name: 'בית הכנסת המרכזי', slug: 'demo-beit-knesset', location: 'מעלה הרמ"ק 2, צפת', theme: 'navy', show_zmanim: true, show_yahrzeits: true, show_campaign_id: cf.id,
+    prayer_times: 'שחרית ותיקין - הנץ\nשחרית - 06:30\nשחרית ב - 08:00\nמנחה - 13:30\nמנחה גדולה - 16:15\nערבית - צאת הכוכבים\nשיעור דף יומי - 20:30',
+    ticker: 'ברוכים הבאים לבית הכנסת של מוסדות אור יקר · נא לשמור על שקט בעת התפילה · קמפיין חנוכה בעיצומו - כל תרומה מוכפלת!', slide_seconds: 10, active: true, is_demo: true,
+  });
+  await insert('boards', { name: 'מסך המשרד', slug: 'demo-office', location: 'משרדי העמותה', theme: 'light', show_zmanim: true, show_yahrzeits: false, show_campaign_id: cf.id, slide_seconds: 12, active: true, is_demo: true });
+  inc('boards', 2);
+  const boardItems = [
+    [null, 'announcement', 'שיעור הרב השבועי', 'כל יום שלישי בשעה 20:30 בהיכל הישיבה.\nהשיעור פתוח לכל הקהילה.'],
+    [board.id, 'mazal_tov', 'מזל טוב למשפחת כהן', 'להולדת הבן. יזכו לגדלו לתורה, לחופה ולמעשים טובים'],
+    [board.id, 'memorial', 'לעילוי נשמת ר׳ אברהם בן שרה ז"ל', 'הלימוד היום מוקדש לעילוי נשמתו'],
+    [null, 'shiur', 'דף יומי עם הרב משה', 'כל ערב אחרי ערבית'],
+    [null, 'donor', 'תודה לתורמי קמפיין חנוכה', 'בזכותכם הישיבה והכולל ממשיכים לפעול'],
+    [board.id, 'announcement', 'סעודה שלישית בשבת', 'בהשתתפות כל הקהילה. ההרשמה במשרד'],
+  ];
+  for (const [i, [bid, kind, title, body]] of boardItems.entries()) {
+    await insert('board_items', { board_id: bid, kind, title, body, sort: i, active: true, starts_on: daysAgo(2), ends_on: daysAgo(-20), is_demo: true });
+    inc('board_items');
+  }
+
   // קישורי תורמים למערכות חיצוניות (מאיפה התורם מוכר: נדרים, JGive, קהילות)
   for (const [i, d] of donors.entries()) {
     if (i % 3 === 0) continue;

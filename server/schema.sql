@@ -534,3 +534,67 @@ CREATE TABLE IF NOT EXISTS staff_messages (
 );
 CREATE INDEX IF NOT EXISTS staff_messages_to_idx ON staff_messages (to_user, at DESC);
 CREATE INDEX IF NOT EXISTS staff_messages_from_idx ON staff_messages (from_user, at DESC);
+
+-- לוח מודעות דיגיטלי (מסך בבית הכנסת / במשרד)
+CREATE TABLE IF NOT EXISTS boards (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  location TEXT,
+  show_zmanim BOOLEAN NOT NULL DEFAULT TRUE,
+  show_yahrzeits BOOLEAN NOT NULL DEFAULT TRUE,
+  show_campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,
+  prayer_times TEXT,
+  ticker TEXT,
+  slide_seconds INTEGER NOT NULL DEFAULT 12,
+  theme TEXT NOT NULL DEFAULT 'navy',
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS board_items (
+  id SERIAL PRIMARY KEY,
+  board_id INTEGER REFERENCES boards(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'announcement',
+  title TEXT NOT NULL,
+  body TEXT,
+  image_url TEXT,
+  starts_on DATE,
+  ends_on DATE,
+  sort INTEGER NOT NULL DEFAULT 0,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- קמפיין גיוס המונים: דף ציבורי משלנו, הכפלה ושגרירים
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS slug TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS public_page BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS headline TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS image_url TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS video_url TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS end_at TIMESTAMPTZ;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS matching NUMERIC(4,2) NOT NULL DEFAULT 1;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS matching_text TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS amounts TEXT;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS show_donors BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS base_raised NUMERIC(14,2) NOT NULL DEFAULT 0;
+CREATE UNIQUE INDEX IF NOT EXISTS campaigns_slug_idx ON campaigns (slug) WHERE slug IS NOT NULL;
+CREATE TABLE IF NOT EXISTS campaign_teams (
+  id SERIAL PRIMARY KEY,
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  goal NUMERIC(14,2),
+  description TEXT,
+  image_url TEXT,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (campaign_id, slug)
+);
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES campaign_teams(id) ON DELETE SET NULL;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS public_message TEXT;

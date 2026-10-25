@@ -54,6 +54,10 @@ const P = {
   eye: <><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></>,
   refresh: <><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8.5" /><path d="M4 3.5v5h5" /><path d="M4 13a8 8 0 0 0 14.5 4.5l1.5-2" /><path d="M20 20.5v-5h-5" /></>,
   download: <><path d="M12 3.5v12M7 10.5l5 5 5-5" /><path d="M4 20.5h16" /></>,
+  tv: <><rect x="2.5" y="4" width="19" height="13" rx="2" /><path d="M8 21h8M12 17v4" /></>,
+  megaphone: <><path d="M3.5 10v4h3l7 4.5v-13L6.5 10z" /><path d="M17 9a4 4 0 0 1 0 6" /><path d="M6.5 14l1.5 5.5h2.5L9.5 15" /></>,
+  link: <><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1" /><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" /></>,
+  clock: <><circle cx="12" cy="12" r="9.5" /><path d="M12 7v5l3.5 2" /></>,
   filter: <path d="M3.5 5h17l-6.5 8v6l-4 2v-8z" />,
 };
 
@@ -72,7 +76,7 @@ export const SOURCE_STYLE = {
   nedarim: ['#1f6f4a', 'נ'], kehilot: ['#7a3fb0', 'ק'], jgive: ['#d9465f', 'J'], charidy: ['#e07a1f', 'C'],
   masav: ['#16357a', 'מ'], manual: ['#5b6478', 'י'], cardcom: ['#0a7cc4', 'כ'], tranzila: ['#2b5aa6', 'ט'], grow: ['#13a37a', 'G'],
   payplus: ['#3d4fd6', 'P'], hyp: ['#b8862b', 'H'], pelecard: ['#4a7c1f', 'P'], payme: ['#c2410c', 'P'], icredit: ['#0f766e', 'i'],
-  greeninvoice: ['#2f855a', 'ח'], field: ['#b45309', 'ש'], bank_import: ['#334155', 'ב'], boxes: ['#a16207', 'ק'],
+  campaign: ['#d9465f', 'ק'], greeninvoice: ['#2f855a', 'ח'], field: ['#b45309', 'ש'], bank_import: ['#334155', 'ב'], boxes: ['#a16207', 'ק'],
 };
 export function SourceBadge({ s, label, withText = true }) {
   const [color, letter] = SOURCE_STYLE[s] || ['#64748b', (label || s || '?').slice(0, 1)];

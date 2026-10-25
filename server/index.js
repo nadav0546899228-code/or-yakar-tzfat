@@ -14,6 +14,7 @@ import { registerSystemRoutes } from './routes/system.js';
 import { registerDiagRoutes, logError } from './routes/diag.js';
 import { registerSettlementRoutes } from './routes/settlements.js';
 import { registerExtraRoutes } from './routes/extra.js';
+import { registerCommunityRoutes } from './routes/community.js';
 import { ensureDefaults } from './settings.js';
 import { runDailyAutomations } from './automations.js';
 import { envInfo, isPublished } from './env.js';
@@ -48,6 +49,7 @@ router.get('/api/live', async (ctx) => {
 });
 registerSettlementRoutes(router);
 registerExtraRoutes(router);
+registerCommunityRoutes(router);
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
 router.get('/api/health', async (ctx) => ctx.json(200, { ok: true, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() }));
 

@@ -10,6 +10,7 @@ import { Icon, SourceBadge } from './icons.jsx';
 import { NewDonation, NewKeva, ResourceForm } from './crm.jsx';
 import { LiveUpdates } from './live.jsx';
 import { InboxPage, GlobalSearch, ViewToggle } from './inbox.jsx';
+import { BoardsPage, CrowdfundingPage } from './community.jsx';
 
 // תפריט לפי הרשאה. perm = המפתח בשרת (roles.js)
 const MENU = [
@@ -29,6 +30,8 @@ const MENU = [
   { to: '/app/r/tzedaka_boxes', label: 'קופות צדקה', short: 'קופות', icon: 'box', perm: 'boxes.read', badge: 'boxes' },
   { grp: 'קמפיינים ואירועים' },
   { to: '/app/r/campaigns', label: 'קמפיינים', icon: 'flag', perm: 'staff' },
+  { to: '/app/crowdfunding', label: 'קמפיין גיוס המונים', short: 'גיוס', icon: 'megaphone', perm: 'staff' },
+  { to: '/app/boards', label: 'לוחות מודעות', short: 'לוחות', icon: 'tv', perm: 'staff' },
   { to: '/app/r/spiritual_orders', label: 'מבצעים רוחניים', short: 'מבצעים', icon: 'candle', perm: 'spiritual.read', badge: 'spiritual' },
   { to: '/app/r/events', label: 'אירועים ודינרים', short: 'אירועים', icon: 'star', perm: 'events.read' },
   { to: '/app/r/aid_requests', label: 'מרכז הסיוע', short: 'סיוע', icon: 'heart', perm: 'aid.read', badge: 'aid' },
@@ -344,6 +347,8 @@ const ROUTES = [
   ['/app/dev', DevPage],
   ['/app/help', HelpPage],
   ['/app/inbox', InboxPage],
+  ['/app/boards', BoardsPage],
+  ['/app/crowdfunding', CrowdfundingPage],
 ];
 
 export function AppShell({ site }) {

@@ -5,6 +5,7 @@ import { RouterProvider, useRoute, api, Toasts, Spinner, UpdateBanner } from './
 import { PublicSite } from './site.jsx';
 import { AppShell, Login } from './app.jsx';
 import { applyViewMode } from './inbox.jsx';
+import { BoardScreen, CampaignPage } from './community.jsx';
 
 applyViewMode();
 
@@ -43,6 +44,11 @@ function Root() {
       applyTheme(d.theme);
     }).catch(setErr);
   }, []);
+  // מסכים ציבוריים מיוחדים: לוח מודעות לטלוויזיה ודף קמפיין
+  const bm = path.match(/^\/board\/([\w-]+)\/?$/);
+  if (bm) return <BoardScreen slug={bm[1]} />;
+  const cm = path.match(/^\/c\/([\w-]+)(?:\/([\w-]+))?\/?$/);
+  if (cm) return <CampaignPage slug={cm[1]} team={cm[2]} />;
   if (err) return <div className="empty">לא ניתן לטעון את האתר כרגע. נסו לרענן.<div className="small muted" style={{ marginTop: 8 }}>{err.message}</div></div>;
   if (!site) return <Spinner />;
   if (path === '/login') { document.title = `כניסה - ${site.org.short_name}`; return <Login org={site.org} />; }
@@ -54,6 +60,6 @@ createRoot(document.getElementById('root')).render(
   <RouterProvider>
     <Root />
     <Toasts />
-    <UpdateBanner />
+    {!window.location.pathname.startsWith('/board/') && <UpdateBanner />}
   </RouterProvider>,
 );

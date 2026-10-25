@@ -1,6 +1,6 @@
 // תוויות וצבעים לסטטוסים ולמקורות
 export const SOURCE_LABELS = {
-  manual: 'ידני / משרד', nedarim: 'נדרים פלוס', kehilot: 'קהילות', jgive: 'JGive', charidy: 'Charidy', greeninvoice: 'חשבונית ירוקה',
+  manual: 'ידני / משרד', campaign: 'דף קמפיין', nedarim: 'נדרים פלוס', kehilot: 'קהילות', jgive: 'JGive', charidy: 'Charidy', greeninvoice: 'חשבונית ירוקה',
   icount: 'iCount', ezcount: 'EZcount', rivhit: 'ריווחית', invoice4u: 'Invoice4U', sumit: 'סאמיט', cardcom: 'קארדקום', tranzila: 'טרנזילה',
   grow: 'Grow', payplus: 'PayPlus', hyp: 'Hyp', pelecard: 'Pelecard', payme: 'PayMe', icredit: 'iCredit', masav: 'מס"ב', bank_import: 'בנק',
 };
