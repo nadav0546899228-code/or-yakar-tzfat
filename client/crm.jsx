@@ -5,6 +5,7 @@ import {
 } from './lib.jsx';
 import { SOURCE_LABELS, TX_STATUS, SO_STATUS, TAX_STATUS, DOC_TYPES, KIND_LABELS, METHOD_LABELS, CALL_REASON, DATE_KIND } from './labels.js';
 import { can } from './app.jsx';
+import { Icon, SourceBadge } from './icons.jsx';
 
 function optLabel(meta, optKey, v) {
   const o = meta.options[optKey]?.find((x) => x.value === v);
@@ -121,7 +122,7 @@ export function ResourcePage({ res }) {
   const { meta, demoMode, user } = useContext(AppCtx);
   const { query } = useRoute();
   const def = meta.resources[res];
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(query.q || '');
   const dq = useDebounced(q);
   const [filters, setFilters] = useState(() => Object.fromEntries(Object.entries(query).filter(([k]) => k.startsWith('f_'))));
   const [page, setPage] = useState(1);
@@ -214,7 +215,7 @@ function ImportButton({ onDone }) {
 // ---------- רכיבי כסף ----------
 export function TxStatus({ s }) { const [l, k] = TX_STATUS[s] || [s, '']; return <Tag kind={k}>{l}</Tag>; }
 export function SoStatus({ s }) { const [l, k] = SO_STATUS[s] || [s, '']; return <Tag kind={k}>{l}</Tag>; }
-export function Src({ s }) { return <span className="src">{SOURCE_LABELS[s] || s}</span>; }
+export function Src({ s, short }) { return <SourceBadge s={s} label={SOURCE_LABELS[s] || s} withText={!short} />; }
 
 export function NewDonation({ donorId, preset = {}, onClose, onDone }) {
   const { user } = useContext(AppCtx);
@@ -244,10 +245,15 @@ export function NewDonation({ donorId, preset = {}, onClose, onDone }) {
       </div>
       <div className="form-grid">
         {!donorId && <Field label="תורם *" full><RefPicker res="donors" value={f.donor_id} onChange={set('donor_id')} /></Field>}
-        <Field label="סכום *"><input className="input num" type="number" min="1" value={f.amount} onChange={set('amount')} autoFocus /></Field>
+        <Field label="סכום *" full>
+          <div className="amount-chips">{[18, 36, 52, 100, 180, 360, 500, 1000].map((v) => <button type="button" key={v} className={`chip-amt ${Number(f.amount) === v ? 'on' : ''}`} onClick={() => set('amount')(String(v))}>{v.toLocaleString('he-IL')}</button>)}</div>
+          <input className="input num" type="number" min="1" inputMode="decimal" placeholder="או סכום אחר" value={f.amount} onChange={set('amount')} />
+        </Field>
         <Field label="מטבע"><select className="input" value={f.currency} onChange={set('currency')}><option value="ILS">₪</option><option value="USD">$</option><option value="EUR">€</option><option value="GBP">£</option></select></Field>
         {mode === 'record' && <>
-          <Field label="אמצעי"><select className="input" value={f.method} onChange={set('method')}>{['cash', 'check', 'transfer', 'bit', 'other'].map((m) => <option key={m} value={m}>{METHOD_LABELS[m]}</option>)}</select></Field>
+          <Field label="אמצעי תשלום" full>
+            <div className="seg-btns">{[['cash', 'cash'], ['check', 'check2'], ['transfer', 'transfer'], ['bit', 'mobile'], ['other', 'coin']].map(([m, ic]) => <button type="button" key={m} className={`seg-btn ${f.method === m ? 'on' : ''}`} onClick={() => set('method')(m)}><Icon name={ic} size={18} />{METHOD_LABELS[m]}</button>)}</div>
+          </Field>
           <Field label="תאריך"><input className="input" type="date" value={f.date} onChange={set('date')} /></Field>
           {f.method === 'check' && <>
             <Field label="מספר צ׳ק"><input className="input" value={f.check_number || ''} onChange={set('check_number')} /></Field>
@@ -289,14 +295,21 @@ export function DonorCard({ params }) {
   const d = data.donor;
   const name = `${d.title ? `${d.title} ` : ''}${d.first_name || ''} ${d.last_name || ''}`.trim();
   const tabs = [['overview', 'סקירה'], ...(data.showFinance ? [['tx', `תרומות (${data.transactions.length})`], ['keva', `הו"ק (${data.keva.length})`], ['docs', `קבלות (${data.documents.length})`]] : []),
-    ['log', `תיעוד (${data.interactions.length})`], ['dates', `תאריכים (${data.dates.length})`], ['more', 'עוד']];
+    ['timeline', 'ציר זמן'], ['log', `תיעוד (${data.interactions.length})`], ['dates', `תאריכים (${data.dates.length})`], ['more', 'עוד']];
   return (
     <div className="stack">
       <div className="card">
         <div className="donor-head">
           <div className="avatar">{(d.first_name || '?')[0]}</div>
           <div className="grow">
-            <h1 style={{ fontSize: 22, margin: 0 }}>{name} {d.is_vip && <Tag kind="purple">VIP</Tag>} {d.is_overseas && <Tag kind="info">חו"ל</Tag>} {d.is_demo && <Tag kind="demo">דוגמה</Tag>} {d.no_contact && <Tag kind="bad">לא ליצור קשר</Tag>}</h1>
+            <h1 style={{ fontSize: 22, margin: 0 }}>{name}</h1>
+            <div className="row chips" style={{ marginTop: 6 }}>
+              {d.is_vip && <button type="button" className="chip purple" onClick={() => navigate('/app/donors?f_is_vip=true')}>VIP</button>}
+              {d.is_overseas && <button type="button" className="chip info" onClick={() => navigate('/app/donors?f_is_overseas=true')}><Icon name="globe" size={14} />חו"ל</button>}
+              {d.no_contact && <span className="chip bad">לא ליצור קשר</span>}
+              {d.is_demo && <span className="chip demo">דוגמה</span>}
+              {(d.tags || []).map((t) => <button type="button" key={t} className="chip" onClick={() => navigate(`/app/donors?q=${encodeURIComponent(t)}`)}>{t}</button>)}
+            </div>
             <div className="row small muted" style={{ marginTop: 4 }}>
               {d.phone && <a className="num" href={phoneHref(d.phone)}><bdi dir="ltr">{d.phone}</bdi></a>}
               {d.email && <a href={`mailto:${d.email}`}>{d.email}</a>}
@@ -304,15 +317,18 @@ export function DonorCard({ params }) {
               {d.recruiter_name && <span>נציג: {d.recruiter_name}</span>}
               {data.links.map((l) => <Src key={l.source + l.external_id} s={l.source} />)}
             </div>
-            <div className="row" style={{ marginTop: 6 }}>{(d.tags || []).map((t) => <Tag key={t} kind="info">{t}</Tag>)}</div>
           </div>
-          <div className="row">
-            {d.phone && <a className="btn" href={phoneHref(d.phone)}>☎ חיוג</a>}
-            {d.phone && <button className="btn" onClick={() => setMsg('whatsapp')}>💬 וואטסאפ</button>}
-            {d.email && <button className="btn" onClick={() => setMsg('email')}>✉ מייל</button>}
-            {can(user, 'tx.write') && <button className="btn primary" onClick={() => setModal({ type: 'donation' })}>+ תרומה</button>}
-            <button className="btn" onClick={() => setModal({ type: 'res', res: 'donors', row: d })}>עריכה</button>
-          </div>
+        </div>
+        <div className="action-bar">
+          {d.phone && !d.no_contact && <a className="act" href={phoneHref(d.phone)}><span className="act-ico" style={{ background: '#0f766e' }}><Icon name="phone" /></span>חיוג</a>}
+          {d.phone && !d.no_contact && <button type="button" className="act" onClick={() => setMsg('whatsapp')}><span className="act-ico" style={{ background: '#1f8a4c' }}><Icon name="chat" /></span>וואטסאפ</button>}
+          {d.email && !d.no_contact && <button type="button" className="act" onClick={() => setMsg('email')}><span className="act-ico" style={{ background: '#2b6cb0' }}><Icon name="mail" /></span>מייל</button>}
+          {can(user, 'tx.write') && <button type="button" className="act" onClick={() => setModal({ type: 'donation' })}><span className="act-ico" style={{ background: '#1f6f4a' }}><Icon name="shekel" /></span>תרומה</button>}
+          {can(user, 'keva.actions') && <button type="button" className="act" onClick={() => setModal({ type: 'keva' })}><span className="act-ico" style={{ background: '#16357a' }}><Icon name="repeat" /></span>הו"ק</button>}
+          {data.showFinance && <button type="button" className="act" onClick={() => setTab('docs')}><span className="act-ico" style={{ background: '#b8862b' }}><Icon name="receipt" /></span>קבלות</button>}
+          <button type="button" className="act" onClick={() => setModal({ type: 'res', res: 'call_tasks', preset: { donor_id: d.id } })}><span className="act-ico" style={{ background: '#7a3fb0' }}><Icon name="task" /></span>משימה</button>
+          <button type="button" className="act" onClick={() => setModal({ type: 'res', res: 'interactions', preset: { donor_id: d.id } })}><span className="act-ico" style={{ background: '#5b6478' }}><Icon name="note" /></span>תיעוד</button>
+          {can(user, 'donors.write') && <button type="button" className="act" onClick={() => setModal({ type: 'res', res: 'donors', row: d })}><span className="act-ico" style={{ background: '#475569' }}><Icon name="pen" /></span>עריכה</button>}
         </div>
         {data.stats && (
           <div className="kpis" style={{ marginTop: 14 }}>
@@ -351,6 +367,7 @@ export function DonorCard({ params }) {
           </div>
         </div>
       )}
+      {tab === 'timeline' && <DonorTimeline data={data} />}
       {tab === 'tx' && <TxTable rows={data.transactions} onChange={reload} hideDonor />}
       {tab === 'keva' && <KevaTable rows={data.keva} onChange={reload} hideDonor />}
       {tab === 'docs' && (
@@ -379,7 +396,32 @@ export function DonorCard({ params }) {
       )}
       {modal?.type === 'res' && <ResourceForm resKey={modal.res} row={modal.row} preset={modal.preset} onClose={() => setModal(null)} onSaved={(r) => { setModal(null); if (modal.res === 'donors' && r === null) navigate('/app/donors'); else reload(); }} />}
       {modal?.type === 'donation' && <NewDonation donorId={d.id} preset={modal.preset} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+      {modal?.type === 'keva' && <NewKeva donorId={d.id} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
       {msg && <SendMessage donorId={d.id} channel={msg} name={name} onClose={() => setMsg(null)} onDone={() => { setMsg(null); reload(); }} />}
+    </div>
+  );
+}
+
+// ציר זמן אחד לכל מה שקרה עם התורם: תרומות, קבלות, שיחות, הודעות
+function DonorTimeline({ data }) {
+  const items = [
+    ...(data.transactions || []).map((t) => ({ at: t.date, icon: 'shekel', color: ['failed', 'bounced'].includes(t.status) ? '#c53030' : '#1f6f4a', title: `תרומה ${money(t.amount, t.currency)}`, sub: `${SOURCE_LABELS[t.source] || t.source} · ${(TX_STATUS[t.status] || [t.status])[0]}` })),
+    ...(data.documents || []).map((x) => ({ at: x.issued_at || x.created_at || x.date, icon: 'receipt', color: '#b8862b', title: `${DOC_TYPES[x.type] || 'מסמך'} ${x.number || ''}`, sub: x.status === 'cancelled' ? 'בוטלה' : money(x.amount) })),
+    ...(data.interactions || []).map((i) => ({ at: i.at, icon: i.kind === 'call' ? 'phone' : i.kind === 'meeting' ? 'donors' : 'note', color: '#5b6478', title: i.summary, sub: i.user_name || '' })),
+    ...(data.messages || []).map((m) => ({ at: m.at, icon: m.channel === 'email' ? 'mail' : 'chat', color: '#2b6cb0', title: String(m.body || '').slice(0, 80), sub: m.channel })),
+    ...(data.keva || []).map((k) => ({ at: k.created_at || k.start_date, icon: 'repeat', color: '#16357a', title: `הוראת קבע ${money(k.amount, k.currency)} בחודש`, sub: (SO_STATUS[k.status] || [k.status])[0] })),
+  ].filter((x) => x.at).sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 80);
+  if (!items.length) return <div className="card muted">אין עדיין פעילות</div>;
+  return (
+    <div className="card">
+      <div className="tl2">
+        {items.map((x, i) => (
+          <div key={i} className="tl2-item">
+            <span className="tl2-ico" style={{ background: x.color }}><Icon name={x.icon} size={16} /></span>
+            <div className="tl2-body"><div>{x.title}</div><div className="small muted">{date(x.at)}{x.sub ? ` · ${x.sub}` : ''}</div></div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -434,15 +476,65 @@ function TxActions({ t, onChange }) {
   );
 }
 
+// צבע שורה לפי מצב: ירוק = שולם עם קבלה, צהוב = שולם בלי קבלה, אדום = נכשל, אפור = בוטל/זוכה
+function txTone(t) {
+  if (['failed', 'bounced'].includes(t.status)) return 'tone-bad';
+  if (['cancelled', 'refunded'].includes(t.status)) return 'tone-off';
+  if (!t.approved) return 'tone-warn';
+  if (t.status === 'paid') return t.document_id || t.document_number ? 'tone-ok' : 'tone-warn';
+  return 'tone-info';
+}
+// כותרות תאריך בסגנון וואטסאפ: היום, אתמול, שם היום עד שבוע, ואחר כך תאריך
+export function dayLabel(v) {
+  if (!v) return '';
+  const d = new Date(String(v).slice(0, 10) + 'T00:00:00');
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const diff = Math.round((t - d) / 86400000);
+  if (diff === 0) return 'היום';
+  if (diff === 1) return 'אתמול';
+  if (diff > 1 && diff < 7) return `יום ${d.toLocaleDateString('he-IL', { weekday: 'long' }).replace('יום ', '')}`;
+  return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: d.getFullYear() !== t.getFullYear() ? 'numeric' : undefined });
+}
+
+function TxList({ rows, hideDonor, onOpen, onChange }) {
+  let lastDay = null;
+  return (
+    <div className="tx-list">
+      {rows.map((t) => {
+        const day = String(t.date).slice(0, 10);
+        const head = day !== lastDay ? <div className="day-head" key={`h${day}`}>{dayLabel(t.date)}</div> : null;
+        lastDay = day;
+        return (
+          <React.Fragment key={t.id}>
+            {head}
+            <div className={`tx-row ${txTone(t)}`} onClick={() => onOpen(t)}>
+              <span className="tx-src"><Src s={t.source} short /></span>
+              <span className="tx-main">
+                <b className="tx-name">{hideDonor ? (KIND_LABELS[t.kind] || t.kind) : (t.donor_name || '-')}</b>
+                <span className="small muted">{SOURCE_LABELS[t.source] || t.source} · {METHOD_LABELS[t.method] || t.method}{t.institution_name ? ` · ${t.institution_name}` : ''}</span>
+              </span>
+              <span className="tx-amt num"><b>{money(t.amount, t.currency)}</b><span className="small">{(TX_STATUS[t.status] || [t.status])[0]}{t.document_number ? ' · קבלה' : ''}</span></span>
+              <span className="tx-act" onClick={(e) => e.stopPropagation()}><TxActions t={t} onChange={onChange} /></span>
+            </div>
+          </React.Fragment>
+        );
+      })}
+      {!rows.length && <div className="empty">אין תנועות</div>}
+    </div>
+  );
+}
+
 export function TxTable({ rows, onChange, hideDonor, selectable, selected, setSelected }) {
   const [open, setOpen] = useState(null);
   return (
-    <div className="table-wrap">
+    <>
+    <div className="only-mobile"><TxList rows={rows} hideDonor={hideDonor} onOpen={setOpen} onChange={onChange} /></div>
+    <div className="table-wrap only-desktop">
       <table className="t">
         <thead><tr>{selectable && <th />}<th>תאריך</th>{!hideDonor && <th>תורם</th>}<th>סכום</th><th>מקור</th><th>סוג</th><th>מוסד</th><th>סטטוס</th><th>קבלה</th><th /></tr></thead>
         <tbody>
           {rows.map((t) => (
-            <tr key={t.id} className={`click ${selected?.includes(t.id) ? 'sel' : ''}`} onClick={() => setOpen(t)}>
+            <tr key={t.id} className={`click ${txTone(t)} ${selected?.includes(t.id) ? 'sel' : ''}`} onClick={() => setOpen(t)}>
               {selectable && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.includes(t.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, t.id] : selected.filter((x) => x !== t.id))} /></td>}
               <td className="nowrap">{date(t.date)}</td>
               {!hideDonor && <td>{t.donor_id ? <Link to={`/app/donors/${t.donor_id}`} onClick={(e) => e.stopPropagation()}>{t.donor_name}</Link> : '-'}{t.is_demo && <> <Tag kind="demo">דוגמה</Tag></>}</td>}
@@ -458,8 +550,9 @@ export function TxTable({ rows, onChange, hideDonor, selectable, selected, setSe
           {!rows.length && <tr><td colSpan={10} className="empty">אין תנועות</td></tr>}
         </tbody>
       </table>
-      {open && <TxDetail t={open} onClose={() => setOpen(null)} onChange={() => { setOpen(null); onChange?.(); }} />}
     </div>
+    {open && <TxDetail t={open} onClose={() => setOpen(null)} onChange={() => { setOpen(null); onChange?.(); }} />}
+    </>
   );
 }
 
@@ -624,7 +717,10 @@ export function NewKeva({ donorId, onClose, onDone, field }) {
     <Modal title="הוראת קבע בנקאית חדשה" onClose={onClose} footer={<><button className="btn primary" disabled={!f.donor_id || !f.amount || !f.account_number} onClick={() => run(() => api('/keva', { method: 'POST', body: f }), 'הו"ק נרשמה').then(onDone)}>שמירה</button><button className="btn" onClick={onClose}>ביטול</button></>}>
       <div className="form-grid">
         {!donorId && <Field label="תורם *" full><RefPicker res="donors" value={f.donor_id} onChange={set('donor_id')} /></Field>}
-        <Field label="סכום חודשי *"><input className="input num" type="number" value={f.amount} onChange={set('amount')} /></Field>
+        <Field label="סכום חודשי *" full>
+          <div className="amount-chips">{[36, 50, 100, 180, 360, 500].map((v) => <button type="button" key={v} className={`chip-amt ${Number(f.amount) === v ? 'on' : ''}`} onClick={() => set('amount')(String(v))}>{v.toLocaleString('he-IL')}</button>)}</div>
+          <input className="input num" type="number" inputMode="decimal" placeholder="או סכום אחר" value={f.amount} onChange={set('amount')} />
+        </Field>
         <Field label="יום חיוב"><select className="input" value={f.day_of_month} onChange={set('day_of_month')}>{[1, 5, 10, 15, 20, 25].map((d) => <option key={d}>{d}</option>)}</select></Field>
         <Field label="בנק"><input className="input num" value={f.bank_code} onChange={set('bank_code')} /></Field>
         <Field label="סניף"><input className="input num" value={f.branch_code} onChange={set('branch_code')} /></Field>

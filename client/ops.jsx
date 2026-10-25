@@ -3,6 +3,7 @@ import { api, useApi, toast, run, Modal, Field, RefPicker, UserPicker, Spinner, 
 import { CALL_REASON, DATE_KIND, SOURCE_LABELS } from './labels.js';
 import { can } from './app.jsx';
 import { NewDonation } from './crm.jsx';
+import { Icon } from './icons.jsx';
 
 // ---------- מוקד טלפוני ----------
 export function CallsPage() {
@@ -327,9 +328,10 @@ export function MessagesPage() {
 
 // ---------- דוחות ----------
 const REPORTS = [
-  ['by_source', 'הכנסות לפי מקור'], ['by_institution', 'הכנסות לפי מוסד'], ['by_month', 'הכנסות לפי חודש'], ['by_recruiter', 'ביצועים לפי נציג / מתרים'],
-  ['forecast', 'תחזית הכנסות מהו"ק'], ['churn', 'נטישת הו"ק'], ['dormant', 'תורמים רדומים'], ['campaigns', 'קמפיינים מול יעד'],
-  ['boxes', 'קופות צדקה'], ['documents', 'מסמכים ודיווח לרשות המסים'], ['accountant', 'ייצוא לרואה חשבון'],
+  ['by_source', 'הכנסות לפי מקור', 'coin', '#1f6f4a'], ['by_institution', 'הכנסות לפי מוסד', 'building', '#16357a'], ['by_month', 'הכנסות לפי חודש', 'chart', '#b8862b'],
+  ['by_recruiter', 'ביצועים לפי נציג / מתרים', 'donors', '#0f766e'], ['forecast', 'תחזית הכנסות מהו"ק', 'repeat', '#2b6cb0'], ['churn', 'נטישת הו"ק', 'alert', '#c53030'],
+  ['dormant', 'תורמים רדומים', 'user', '#7a3fb0'], ['campaigns', 'קמפיינים מול יעד', 'flag', '#d9465f'], ['boxes', 'קופות צדקה', 'box', '#a16207'],
+  ['documents', 'מסמכים ודיווח לרשות המסים', 'receipt', '#5b6478'], ['accountant', 'ייצוא לרואה חשבון', 'download', '#334155'],
 ];
 export function ReportsPage() {
   const { demoMode } = useContext(AppCtx);
@@ -343,7 +345,11 @@ export function ReportsPage() {
   return (
     <div>
       <div className="page-head"><h1>מרכז דוחות</h1><button className="btn" onClick={() => run(() => download(`/reports/${kind}${qs({ from, to, format: 'csv', demo: demoMode })}`, `${kind}.csv`))}>ייצוא ל-Excel (CSV)</button></div>
-      <div className="row" style={{ marginBottom: 12 }}>{REPORTS.map(([k, l]) => <button key={k} className={`btn sm ${kind === k ? 'primary' : ''}`} onClick={() => setKind(k)}>{l}</button>)}</div>
+      <div className="report-cards">{REPORTS.map(([k, l, ic, color]) => (
+        <button type="button" key={k} className={`report-card ${kind === k ? 'on' : ''}`} onClick={() => setKind(k)}>
+          <span className="report-ico" style={{ background: color }}><Icon name={ic} size={20} /></span><span>{l}</span>
+        </button>
+      ))}</div>
       <div className="toolbar"><span className="small muted">מתאריך</span><input className="input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /><span className="small muted">עד</span><input className="input" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
       {loading ? <Spinner /> : (
         <div className="card">

@@ -32,6 +32,19 @@ registerCrudRoutes(router);
 registerFinanceRoutes(router);
 registerSystemRoutes(router);
 registerDiagRoutes(router);
+
+// ---------- עדכון חי: גרסת נתונים + התראות חדשות ----------
+let liveVersion = Date.now();
+export function bumpLive() { liveVersion += 1; }
+router.get('/api/live', async (ctx) => {
+  if (!ctx.user) { ctx.json(200, { v: liveVersion, notifs: [] }); return; }
+  const since = Number(ctx.query?.since || 0);
+  const notifs = since ? await many(`SELECT id, title, body, link, at FROM notifications
+    WHERE id > $3 AND NOT ($1 = ANY(read_by)) AND (user_id = $1 OR $2 = ANY(roles) OR (user_id IS NULL AND cardinality(roles) = 0))
+    ORDER BY id LIMIT 5`, [ctx.user.id, ctx.user.active_role, since]) : [];
+  const last = (await one('SELECT COALESCE(MAX(id),0)::int AS m FROM notifications')).m;
+  ctx.json(200, { v: liveVersion, last, notifs });
+});
 registerSettlementRoutes(router);
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
 router.get('/api/health', async (ctx) => ctx.json(200, { ok: true, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() }));
@@ -137,6 +150,8 @@ const server = http.createServer(async (req, res) => {
     await loadSession(ctx);
     for (const h of match.route.handlers) await h(ctx);
     if (!res.headersSent) ctx.json(204, {});
+    // מונה שינויים: כל שינוי מוצלח מעלה גרסה, והמסכים הפתוחים מתרעננים לבד
+    if (req.method !== 'GET' && !pathname.startsWith('/api/diag/client-error') && !pathname.startsWith('/api/notifications/read')) bumpLive();
   } catch (e) {
     const status = e.status || 500;
     if (status >= 500 && status !== 503) {

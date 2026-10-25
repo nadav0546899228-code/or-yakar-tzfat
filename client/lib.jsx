@@ -62,14 +62,23 @@ export async function api(path, { method = 'GET', body, raw } = {}) {
 export function useApi(path, deps = []) {
   const [state, setState] = useState({ data: null, loading: true, error: null });
   const [tick, setTick] = useState(0);
+  const silent = React.useRef(false);
   useEffect(() => {
     if (!path) return undefined;
     let alive = true;
-    setState((s) => ({ ...s, loading: true }));
+    const quiet = silent.current;
+    silent.current = false;
+    if (!quiet) setState((s) => ({ ...s, loading: true }));
     api(path).then((data) => alive && setState({ data, loading: false, error: null }))
-      .catch((error) => alive && setState({ data: null, loading: false, error }));
+      .catch((error) => alive && (quiet ? setState((s) => ({ ...s, loading: false })) : setState({ data: null, loading: false, error })));
     return () => { alive = false; };
   }, [path, tick, ...deps]);
+  // עדכון חי: כשמשהו השתנה במערכת, הנתונים נטענים מחדש בשקט - בלי הבהוב ובלי לאבד גלילה
+  useEffect(() => {
+    const on = () => { silent.current = true; setTick((t) => t + 1); };
+    window.addEventListener('oy:refresh', on);
+    return () => window.removeEventListener('oy:refresh', on);
+  }, []);
   return { ...state, reload: () => setTick((t) => t + 1) };
 }
 

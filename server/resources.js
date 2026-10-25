@@ -115,7 +115,7 @@ export const RESOURCES = {
       { key: 'notes', label: 'הערות', type: 'textarea', advanced: true },
     ],
     list: ['first_name', 'last_name', 'phone', 'city', 'status', 'tags'],
-    search: ['first_name', 'last_name', 'phone', 'phone2', 'email', 'id_number', 'city'],
+    search: ['first_name', 'last_name', 'phone', 'phone2', 'email', 'id_number', 'city', 'tags'],
     filters: ['status', 'is_vip', 'is_overseas', 'recruiter_user_id', 'currency'],
     sort: 'updated_at DESC',
     computed: {
