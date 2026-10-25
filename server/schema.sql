@@ -517,3 +517,20 @@ CREATE TABLE IF NOT EXISTS settlements (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS settle_dedupe_idx ON settlements (acquirer, COALESCE(voucher_number,''), COALESCE(approval_number,''), transaction_date, amount_gross);
 CREATE INDEX IF NOT EXISTS settle_tx_idx ON settlements (transaction_id);
+
+-- הודעות פנימיות בין אנשי הצוות
+CREATE TABLE IF NOT EXISTS staff_messages (
+  id BIGSERIAL PRIMARY KEY,
+  from_user INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  to_user INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  subject TEXT,
+  body TEXT NOT NULL,
+  reply_to BIGINT,
+  link TEXT,
+  at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  read_at TIMESTAMPTZ,
+  deleted_by_sender BOOLEAN NOT NULL DEFAULT FALSE,
+  deleted_by_recipient BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS staff_messages_to_idx ON staff_messages (to_user, at DESC);
+CREATE INDEX IF NOT EXISTS staff_messages_from_idx ON staff_messages (from_user, at DESC);

@@ -118,6 +118,95 @@ export function ResourceForm({ resKey, row, preset = {}, onClose, onSaved }) {
   );
 }
 
+// שורות שכבר טופלו - מתקפלות לשורה אחת בסוף הרשימה
+const DONE_RULES = {
+  call_tasks: (r) => ['done', 'cancelled'].includes(r.status),
+  contact_messages: (r) => !!r.handled,
+  aid_requests: (r) => ['paid', 'rejected'].includes(r.status),
+  spiritual_orders: (r) => ['done', 'cancelled'].includes(r.status),
+  pledges: (r) => ['paid', 'cancelled'].includes(r.status),
+};
+
+// בחירה מהירה בתוך השורה: שינוי סטטוס / נציג בלי לפתוח טופס
+function QuickSelect({ resKey, row, f, meta, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const opts = meta.options[f.options] || [];
+  return (
+    <select className={`quick-sel ${busy ? 'busy' : ''}`} value={row[f.key] ?? ''} onClick={(e) => e.stopPropagation()} disabled={busy}
+      onChange={async (e) => { setBusy(true); try { await api(`/r/${resKey}/${row.id}`, { method: 'PUT', body: { [f.key]: e.target.value } }); toast('עודכן', 'ok'); onDone(); } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); } }}>
+      {!f.required && <option value="">-</option>}
+      {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function BulkBar({ resKey, def, meta, ids, onClear, onDone }) {
+  const [mode, setMode] = useState(null);
+  const [val, setVal] = useState('');
+  const [field, setField] = useState('');
+  const settable = def.fields.filter((f) => ['select', 'user', 'bool'].includes(f.type) && !f.readonly);
+  const tagField = def.fields.find((f) => f.type === 'tags');
+  const act = (body, msg) => run(() => api(`/r/${resKey}/bulk`, { method: 'POST', body: { ids, ...body } }), (r) => r.message || msg).then(() => { setMode(null); onDone(); });
+  const fdef = settable.find((f) => f.key === field);
+  return (
+    <div className="bulk-bar">
+      <b>{ids.length} נבחרו</b>
+      {tagField && <button className="btn sm" onClick={() => setMode('tag')}><Icon name="flag" size={16} />תגית</button>}
+      {settable.length > 0 && <button className="btn sm" onClick={() => { setMode('set'); setField(settable[0].key); setVal(''); }}><Icon name="pen" size={16} />עדכון שדה</button>}
+      <button className="btn sm danger" onClick={() => setMode('delete')}><Icon name="x" size={16} />מחיקה</button>
+      <button className="btn sm ghost" onClick={onClear}>ביטול סימון</button>
+      {mode === 'tag' && (
+        <Modal title={`הוספת תגית ל-${ids.length} רשומות`} size="narrow" onClose={() => setMode(null)} footer={<><button className="btn primary" disabled={!val.trim()} onClick={() => act({ action: 'add_tag', value: val.trim() })}>הוספה</button><button className="btn" onClick={() => setMode(null)}>ביטול</button></>}>
+          <input className="input" autoFocus placeholder="למשל: דינר 2026" value={val} onChange={(e) => setVal(e.target.value)} />
+        </Modal>
+      )}
+      {mode === 'set' && (
+        <Modal title={`עדכון ${ids.length} רשומות`} size="narrow" onClose={() => setMode(null)} footer={<><button className="btn primary" onClick={() => act({ action: 'set', field, value: val })}>עדכון</button><button className="btn" onClick={() => setMode(null)}>ביטול</button></>}>
+          <div className="stack">
+            <Field label="שדה"><select className="input" value={field} onChange={(e) => { setField(e.target.value); setVal(''); }}>{settable.map((f) => <option key={f.key} value={f.key}>{f.label}</option>)}</select></Field>
+            <Field label="ערך חדש">
+              {fdef?.type === 'select' && <select className="input" value={val} onChange={(e) => setVal(e.target.value)}><option value="">-</option>{(meta.options[fdef.options] || []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>}
+              {fdef?.type === 'user' && <UserPicker value={val} onChange={(v) => setVal(v || '')} />}
+              {fdef?.type === 'bool' && <select className="input" value={val} onChange={(e) => setVal(e.target.value)}><option value="true">כן</option><option value="false">לא</option></select>}
+            </Field>
+          </div>
+        </Modal>
+      )}
+      {mode === 'delete' && <Confirm danger needReason title={`מחיקת ${ids.length} רשומות`} text="המחיקה סופית ותירשם ביומן הפעולות עם הסיבה." onClose={() => setMode(null)} onYes={(reason) => act({ action: 'delete', reason })} />}
+    </div>
+  );
+}
+
+const TITLE_KEYS = ['name', 'title', 'donor_id', 'family_name', 'location_name', 'name_for', 'subject', 'code'];
+function ResourceCard({ row, listFields, meta, labels, res, canWrite, selected, onSelect, onOpen, onChange }) {
+  // כותרת הכרטיס: לתורם - שם מלא; אחרת השדה המשמעותי (שם / תורם / כותרת)
+  let first = listFields.find((f) => TITLE_KEYS.includes(f.key)) || listFields[0];
+  let rest = listFields.filter((f) => f !== first);
+  if (res === 'donors') {
+    first = { key: '_full', type: 'text' };
+    rest = rest.filter((f) => !['first_name', 'last_name'].includes(f.key));
+    row = { ...row, _full: `${row.title ? `${row.title} ` : ''}${row.first_name || ''} ${row.last_name || ''}`.trim() };
+  }
+  const quick = rest.filter((f) => f.type === 'select' && canWrite);
+  const info = rest.filter((f) => !(f.type === 'select' && canWrite));
+  return (
+    <div className={`res-card ${selected ? 'sel' : ''}`} onClick={onOpen}>
+      {canWrite && <input type="checkbox" className="res-check" checked={selected} onClick={(e) => e.stopPropagation()} onChange={(e) => onSelect(e.target.checked)} aria-label="בחירה" />}
+      <div className="res-main">
+        <div className="res-title"><b>{renderValue(meta, first, row, labels) || '-'}</b>{row.is_demo && <span className="chip demo">דוגמה</span>}</div>
+        <div className="res-info small muted">{info.map((f) => { const v = renderValue(meta, f, row, labels); return v === '' || v === null ? null : <span key={f.key}>{f.type === 'tags' || f.type === 'money' || f.type === 'phone' ? '' : `${f.label}: `}{v}</span>; })}</div>
+        {quick.length > 0 && <div className="res-quick" onClick={(e) => e.stopPropagation()}>{quick.map((f) => <QuickSelect key={f.key} resKey={res} row={row} f={f} meta={meta} onDone={onChange} />)}</div>}
+      </div>
+      {res === 'donors' && row.phone && (
+        <div className="res-acts" onClick={(e) => e.stopPropagation()}>
+          <a className="round-btn" href={phoneHref(row.phone)} aria-label="חיוג" style={{ background: '#0f766e' }}><Icon name="phone" size={18} /></a>
+          <a className="round-btn" href={waHref(row.phone)} target="_blank" rel="noopener" aria-label="וואטסאפ" style={{ background: '#1f8a4c' }}><Icon name="chat" size={18} /></a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ResourcePage({ res }) {
   const { meta, demoMode, user } = useContext(AppCtx);
   const { query } = useRoute();
@@ -128,10 +217,12 @@ export function ResourcePage({ res }) {
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState(null);
   const [tab, setTab] = useState(res);
+  const [sel, setSel] = useState([]);
+  const [showDone, setShowDone] = useState(false);
   const effectiveRes = res === 'institutions' ? tab : res;
   const effDef = meta.resources[effectiveRes] || def;
   const { data, loading, error, reload } = useApi(def ? `/r/${effectiveRes}${qs({ q: dq, page, demo: demoMode, ...filters })}` : null);
-  useEffect(() => { setPage(1); }, [dq, JSON.stringify(filters), effectiveRes]);
+  useEffect(() => { setPage(1); setSel([]); }, [dq, JSON.stringify(filters), effectiveRes]);
   if (!def) return <div className="empty">מודול לא קיים</div>;
   const listFields = effDef.list.map((k) => effDef.fields.find((f) => f.key === k) || effDef.readonlyFields.find((f) => f.key === k) || (COMPUTED_LABELS[k] && { key: k, label: COMPUTED_LABELS[k][0], type: COMPUTED_LABELS[k][1] })).filter(Boolean);
   const canWrite = !effDef.readonly && can(user, effDef.perms.write);
@@ -139,14 +230,28 @@ export function ResourcePage({ res }) {
     if (effDef.detailPath) navigate(effDef.detailPath.replace(':id', row.id));
     else setEdit(row);
   };
+  const isDone = DONE_RULES[effectiveRes];
+  const rows = data?.rows || [];
+  const active = isDone ? rows.filter((r) => !isDone(r)) : rows;
+  const done = isDone ? rows.filter(isDone) : [];
+  const toggle = (id, on) => setSel((x) => (on ? [...new Set([...x, id])] : x.filter((y) => y !== id)));
+  const changed = () => { setSel([]); reload(); };
+  const renderRows = (list) => list.map((row) => (
+    <tr key={row.id} className={`click ${sel.includes(row.id) ? 'sel' : ''}`} onClick={() => open(row)}>
+      {canWrite && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.includes(row.id)} onChange={(e) => toggle(row.id, e.target.checked)} aria-label="בחירה" /></td>}
+      {listFields.map((f, i) => <td key={f.key}>{f.type === 'select' && canWrite && i > 0 ? <QuickSelect resKey={effectiveRes} row={row} f={f} meta={meta} onDone={reload} /> : renderValue(meta, f, row, data.labels)}{i === 0 && row.is_demo && <> <Tag kind="demo">דוגמה</Tag></>}</td>)}
+      {res === 'donors' && <td className="nowrap" onClick={(e) => e.stopPropagation()}>{row.phone && <><a className="btn sm ghost" href={phoneHref(row.phone)} aria-label="חיוג"><Icon name="phone" size={16} /></a><a className="btn sm ghost" href={waHref(row.phone)} target="_blank" rel="noopener" aria-label="וואטסאפ"><Icon name="chat" size={16} /></a></>}</td>}
+    </tr>
+  ));
+  const renderCards = (list) => list.map((row) => <ResourceCard key={row.id} row={row} listFields={listFields} meta={meta} labels={data.labels} res={effectiveRes} canWrite={canWrite} selected={sel.includes(row.id)} onSelect={(on) => toggle(row.id, on)} onOpen={() => open(row)} onChange={reload} />);
   return (
     <div>
       <div className="page-head">
         <h1>{res === 'institutions' ? 'מוסדות ומטרות' : def.label}</h1>
         <div className="row">
           {res === 'donors' && can(user, 'donors.merge') && <Link className="btn" to="/app/donors/duplicates">איתור כפילויות</Link>}
-          {res === 'donors' && <ImportButton onDone={reload} />}
-          <button className="btn" onClick={() => run(() => download(`/export/${effectiveRes}`, `${effectiveRes}.csv`))}>ייצוא</button>
+          {canWrite && <ImportButton resKey={effectiveRes} def={effDef} onDone={reload} />}
+          <button className="btn" onClick={() => run(async () => { const d = await api(`/export/${effectiveRes}?format=json`); const { writeXlsx } = await import('./xlsx.js'); await writeXlsx(`${effDef.label}`, d.headers, d.rows, effDef.label); })}><Icon name="download" size={16} />ייצוא לאקסל</button>
           {canWrite && <button className="btn primary" onClick={() => setEdit({})}>+ {effDef.one}</button>}
         </div>
       </div>
@@ -162,22 +267,38 @@ export function ResourcePage({ res }) {
           return <input key={k} className="input" placeholder={f.label} value={filters[`f_${k}`] || ''} onChange={(e) => setFilters({ ...filters, [`f_${k}`]: e.target.value })} />;
         })}
         {data && <span className="muted small">{data.total} רשומות</span>}
+        {canWrite && rows.length > 0 && <label className="check small"><input type="checkbox" checked={rows.length > 0 && rows.every((r) => sel.includes(r.id))} onChange={(e) => setSel(e.target.checked ? rows.map((r) => r.id) : [])} />סימון הכל</label>}
       </div>
+      {sel.length > 0 && <BulkBar resKey={effectiveRes} def={effDef} meta={meta} ids={sel} onClear={() => setSel([])} onDone={changed} />}
       <ErrorBox error={error} />
-      <div className="table-wrap">
-        <table className="t">
-          <thead><tr>{listFields.map((f) => <th key={f.key}>{f.label}</th>)}{res === 'donors' && <th />}</tr></thead>
-          <tbody>
-            {loading && !data ? <tr><td colSpan={9}><Spinner /></td></tr> : data?.rows.map((row) => (
-              <tr key={row.id} className="click" onClick={() => open(row)}>
-                {listFields.map((f, i) => <td key={f.key}>{renderValue(meta, f, row, data.labels)}{i === 0 && row.is_demo && <> <Tag kind="demo">דוגמה</Tag></>}</td>)}
-                {res === 'donors' && <td className="nowrap" onClick={(e) => e.stopPropagation()}>{row.phone && <><a className="btn sm ghost" href={phoneHref(row.phone)}>☎</a><a className="btn sm ghost" href={waHref(row.phone)} target="_blank" rel="noopener">💬</a></>}</td>}
-              </tr>
-            ))}
-            {data && !data.rows.length && <tr><td colSpan={9} className="empty">אין נתונים</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      {loading && !data ? <Spinner /> : (
+        <>
+          <div className="only-mobile res-list">
+            {renderCards(active)}
+            {data && !rows.length && <div className="empty">אין נתונים</div>}
+          </div>
+          <div className="table-wrap only-desktop">
+            <table className="t">
+              <thead><tr>{canWrite && <th />}{listFields.map((f) => <th key={f.key}>{f.label}</th>)}{res === 'donors' && <th />}</tr></thead>
+              <tbody>
+                {data && renderRows(active)}
+                {data && !rows.length && <tr><td colSpan={12} className="empty">אין נתונים</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {done.length > 0 && (
+            <div className="done-fold">
+              <button type="button" className="done-head" onClick={() => setShowDone(!showDone)}><Icon name="check" size={18} />טופלו ({done.length})<span className="grow" /><Icon name="arrowLeft" size={16} style={{ transform: showDone ? 'rotate(-90deg)' : 'none' }} /></button>
+              {showDone && (
+                <>
+                  <div className="only-mobile res-list">{renderCards(done)}</div>
+                  <div className="table-wrap only-desktop"><table className="t"><tbody>{renderRows(done)}</tbody></table></div>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      )}
       {data && data.total > data.size && (
         <div className="pager"><button className="btn sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>הקודם</button><span className="small">עמוד {page} מתוך {Math.ceil(data.total / data.size)}</span><button className="btn sm" disabled={page * data.size >= data.total} onClick={() => setPage(page + 1)}>הבא</button></div>
       )}
@@ -186,26 +307,46 @@ export function ResourcePage({ res }) {
   );
 }
 
-// ייבוא תורמים מ-CSV (עמודות בעברית או באנגלית)
-function ImportButton({ onDone }) {
+// ייבוא מאקסל או CSV לכל מודול, עם קובץ דוגמה ריק להורדה
+const DONOR_MAP = { 'שם פרטי': 'first_name', 'שם משפחה': 'last_name', 'טלפון': 'phone', 'נייד': 'phone', 'מייל': 'email', 'דוא"ל': 'email', 'ת.ז.': 'id_number', 'תז': 'id_number', 'עיר': 'city', 'כתובת': 'address', 'תואר': 'title', 'תגיות': 'tags', 'מדינה': 'country', 'הערות': 'notes' };
+function ImportButton({ resKey, def, onDone }) {
   const [rows, setRows] = useState(null);
-  const MAP = { 'שם פרטי': 'first_name', 'שם משפחה': 'last_name', 'טלפון': 'phone', 'נייד': 'phone', 'מייל': 'email', 'דוא"ל': 'email', 'ת.ז.': 'id_number', 'תז': 'id_number', 'עיר': 'city', 'כתובת': 'address', 'תואר': 'title', 'תגיות': 'tags', 'מדינה': 'country', 'הערות': 'notes' };
-  const parse = (text) => {
-    const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim());
-    const split = (l) => { const out = []; let cur = ''; let q = false; for (const ch of l) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out.map((s) => s.trim()); };
-    const head = split(lines[0]).map((h) => MAP[h] || h);
-    return lines.slice(1).map((l) => Object.fromEntries(split(l).map((v, i) => [head[i], v])));
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const tmplFields = def.fields.filter((f) => !['file', 'json'].includes(f.type) && !f.advanced);
+  const template = () => run(async () => { const { writeXlsx } = await import('./xlsx.js'); await writeXlsx(`תבנית ייבוא - ${def.label}`, tmplFields.map((f) => (f.required ? `${f.label} *` : f.label)), [], def.label); });
+  const pick = (file) => run(async () => { const { readSheet } = await import('./xlsx.js'); const r = await readSheet(file); if (!r.length) throw new Error('לא נמצאו שורות בקובץ'); setRows(r); setResult(null); });
+  const doImport = async () => {
+    setBusy(true);
+    try {
+      if (resKey === 'donors') {
+        const labelMap = Object.fromEntries(def.fields.map((f) => [f.label, f.key]));
+        const mapped = rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [DONOR_MAP[k.replace(/\s*\*$/, '')] || labelMap[k.replace(/\s*\*$/, '')] || k, v])));
+        const r = await api('/import/donors', { method: 'POST', body: { rows: mapped } });
+        setResult({ text: `נוצרו ${r.created} תורמים, ${r.linked} כבר היו קיימים, ${r.skipped} דולגו` });
+      } else {
+        const r = await api(`/r/${resKey}/import`, { method: 'POST', body: { rows } });
+        setResult({ text: `נוספו ${r.created} רשומות${r.failed ? `, ${r.failed} נכשלו` : ''}`, errors: r.errors });
+      }
+      onDone();
+    } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   return (
     <>
-      <label className="btn">ייבוא CSV<input type="file" accept=".csv,text/csv" hidden onChange={(e) => { const f = e.target.files[0]; if (!f) return; f.text().then((t) => setRows(parse(t))); e.target.value = ''; }} /></label>
+      <label className="btn"><Icon name="download" size={16} style={{ transform: 'rotate(180deg)' }} />ייבוא<input type="file" accept=".xlsx,.csv,text/csv" hidden onChange={(e) => { const f = e.target.files[0]; if (f) pick(f); e.target.value = ''; }} /></label>
+      <button className="btn ghost sm" onClick={template} title="קובץ אקסל ריק עם שמות העמודות">תבנית</button>
       {rows && (
-        <Modal title={`ייבוא ${rows.length} תורמים`} onClose={() => setRows(null)} footer={<>
-          <button className="btn primary" onClick={async () => { const r = await run(() => api('/import/donors', { method: 'POST', body: { rows } })); toast(`נוצרו ${r.created}, קיימים ${r.linked}, דולגו ${r.skipped}`, 'ok'); setRows(null); onDone(); }}>ייבוא</button>
-          <button className="btn" onClick={() => setRows(null)}>ביטול</button></>}>
-          <p className="small muted">תורמים קיימים (לפי טלפון או ת.ז.) לא ישוכפלו. עמודות מוכרות: שם פרטי, שם משפחה, טלפון, מייל, ת.ז., עיר, כתובת, תגיות.</p>
-          <div className="table-wrap"><table className="t"><thead><tr>{Object.keys(rows[0] || {}).map((k) => <th key={k}>{k}</th>)}</tr></thead>
-            <tbody>{rows.slice(0, 8).map((r, i) => <tr key={i}>{Object.values(r).map((v, j) => <td key={j}>{v}</td>)}</tr>)}</tbody></table></div>
+        <Modal title={`ייבוא ${rows.length} שורות - ${def.label}`} onClose={() => setRows(null)} footer={result ? <button className="btn primary" onClick={() => setRows(null)}>סגירה</button> : <><button className="btn primary" disabled={busy} onClick={doImport}>{busy ? 'מייבא…' : 'ייבוא'}</button><button className="btn" onClick={() => setRows(null)}>ביטול</button></>}>
+          {result ? (
+            <div className="stack"><div className="notice ok">{result.text}</div>{result.errors?.length > 0 && <ul className="small">{result.errors.map((e) => <li key={e}>{e}</li>)}</ul>}</div>
+          ) : (
+            <>
+              <p className="small muted">העמודות מזוהות לפי השמות בעברית שבתבנית. {resKey === 'donors' ? 'תורמים קיימים (לפי טלפון או ת.ז.) לא ישוכפלו.' : ''}</p>
+              <div className="table-wrap"><table className="t"><thead><tr>{Object.keys(rows[0] || {}).map((k) => <th key={k}>{k}</th>)}</tr></thead>
+                <tbody>{rows.slice(0, 8).map((r, i) => <tr key={i}>{Object.values(r).map((v, j) => <td key={j}>{String(v)}</td>)}</tr>)}</tbody></table></div>
+              {rows.length > 8 && <div className="small muted">ועוד {rows.length - 8} שורות</div>}
+            </>
+          )}
         </Modal>
       )}
     </>
@@ -650,9 +791,25 @@ function KevaActions({ k, onChange }) {
   );
 }
 
+function kevaTone(k) { return k.status === 'active' ? (k.failures > 0 ? 'tone-warn' : 'tone-ok') : ['failed'].includes(k.status) ? 'tone-bad' : 'tone-off'; }
 export function KevaTable({ rows, onChange, hideDonor }) {
   return (
-    <div className="table-wrap">
+    <>
+    <div className="only-mobile tx-list">
+      {rows.map((k) => (
+        <div key={k.id} className={`tx-row ${kevaTone(k)}`} onClick={() => k.donor_id && navigate(`/app/donors/${k.donor_id}`)}>
+          <span className="tx-src"><Src s={k.source} short /></span>
+          <span className="tx-main">
+            <b className="tx-name">{hideDonor ? (k.type === 'bank' ? 'הו"ק בנקאית' : 'הו"ק באשראי') : k.donor_name}</b>
+            <span className="small muted">{k.type === 'bank' ? `בנק ${k.account_masked || ''}` : `אשראי ${k.card_last4 ? `****${k.card_last4}` : ''}`} · יום {k.day_of_month} · שולמו {k.months_paid}{k.months_total ? `/${k.months_total}` : ''}</span>
+          </span>
+          <span className="tx-amt num"><b>{money(k.amount, k.currency)}</b><span className="small">{(SO_STATUS[k.status] || [k.status])[0]}{k.failures > 0 ? ` · ${k.failures} כשלונות` : ''}</span></span>
+          <span className="tx-act" onClick={(e) => e.stopPropagation()}><KevaActions k={k} onChange={onChange} /></span>
+        </div>
+      ))}
+      {!rows.length && <div className="empty">אין הוראות קבע</div>}
+    </div>
+    <div className="table-wrap only-desktop">
       <table className="t">
         <thead><tr>{!hideDonor && <th>תורם</th>}<th>סכום</th><th>מקור</th><th>סוג</th><th>יום</th><th>שולמו</th><th>סיום</th><th>מוסד</th><th>סטטוס</th><th /></tr></thead>
         <tbody>
@@ -674,6 +831,7 @@ export function KevaTable({ rows, onChange, hideDonor }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -738,8 +896,30 @@ export function NewKeva({ donorId, onClose, onDone, field }) {
 export function DocsTable({ rows, onChange }) {
   const { user } = useContext(AppCtx);
   const [cancel, setCancel] = useState(null);
+  const docActs = (d) => (
+    <>
+      {d.pdf_url && <a className="btn sm" href={d.pdf_url} target="_blank" rel="noopener">PDF</a>}
+      {d.status === 'active' && can(user, 'docs.issue') && <><button className="btn sm" onClick={() => run(() => api(`/documents/${d.id}/send`, { method: 'POST', body: { channel: 'email' } }), 'נשלח במייל').then(onChange)}><Icon name="mail" size={15} />מייל</button><button className="btn sm" onClick={() => run(() => api(`/documents/${d.id}/send`, { method: 'POST', body: { channel: 'whatsapp' } }), 'נשלח בוואטסאפ').then(onChange)}><Icon name="chat" size={15} />וואטסאפ</button></>}
+      {d.status === 'active' && d.type !== 'credit' && can(user, 'docs.cancel') && <button className="btn sm danger" onClick={() => setCancel(d)}>ביטול</button>}
+    </>
+  );
   return (
-    <div className="table-wrap">
+    <>
+    <div className="only-mobile tx-list">
+      {rows.map((d) => (
+        <div key={d.id} className={`tx-row ${d.status === 'cancelled' ? 'tone-off' : ['pending', 'failed'].includes(d.tax_report_status) ? 'tone-warn' : 'tone-ok'}`} onClick={() => d.donor_id && navigate(`/app/donors/${d.donor_id}`)}>
+          <span className="tx-src"><span className="src-dot" style={{ background: '#b8862b' }}><Icon name="receipt" size={14} /></span></span>
+          <span className="tx-main">
+            <b className="tx-name">{d.donor_name || '-'}</b>
+            <span className="small muted num">{DOC_TYPES[d.type]} {d.number} · {date(d.issued_at)}</span>
+          </span>
+          <span className="tx-amt num"><b>{money(d.amount, d.currency)}</b><span className="small">{d.status === 'cancelled' ? 'בוטל' : (TAX_STATUS[d.tax_report_status] || [''])[0]}</span></span>
+          <span className="tx-act row" style={{ gap: 4 }} onClick={(e) => e.stopPropagation()}>{docActs(d)}</span>
+        </div>
+      ))}
+      {!rows.length && <div className="empty">אין מסמכים</div>}
+    </div>
+    <div className="table-wrap only-desktop">
       <table className="t">
         <thead><tr><th>מספר</th><th>סוג</th><th>תאריך</th><th>תורם</th><th>סכום</th><th>ספק</th><th>דיווח לרשות המסים</th><th>סטטוס</th><th /></tr></thead>
         <tbody>
@@ -753,19 +933,16 @@ export function DocsTable({ rows, onChange }) {
               <td><Src s={d.provider} /></td>
               <td>{(() => { const [l, k] = TAX_STATUS[d.tax_report_status] || ['', '']; return <><Tag kind={k}>{l}</Tag> <span className="small muted num">{d.tax_report_number}</span></>; })()}</td>
               <td>{d.status === 'cancelled' ? <Tag kind="bad">בוטל</Tag> : <Tag kind="ok">בתוקף</Tag>}</td>
-              <td className="nowrap">
-                {d.pdf_url && <a className="btn sm" href={d.pdf_url} target="_blank" rel="noopener">PDF</a>}
-                {d.status === 'active' && can(user, 'docs.issue') && <><button className="btn sm" onClick={() => run(() => api(`/documents/${d.id}/send`, { method: 'POST', body: { channel: 'email' } }), 'נשלח במייל').then(onChange)}>מייל</button><button className="btn sm" onClick={() => run(() => api(`/documents/${d.id}/send`, { method: 'POST', body: { channel: 'whatsapp' } }), 'נשלח בוואטסאפ').then(onChange)}>וואטסאפ</button></>}
-                {d.status === 'active' && d.type !== 'credit' && can(user, 'docs.cancel') && <button className="btn sm danger" onClick={() => setCancel(d)}>ביטול</button>}
-              </td>
+              <td className="nowrap">{docActs(d)}</td>
             </tr>
           ))}
           {!rows.length && <tr><td colSpan={9} className="empty">אין מסמכים</td></tr>}
         </tbody>
       </table>
+    </div>
       {cancel && <Confirm danger needReason title={`ביטול מסמך ${cancel.number}`} text="לפי חוק ניהול ספרים מסמך לא נמחק: הוא יסומן כמבוטל ויופק מסמך זיכוי בספק. הביטול ידווח גם ל'תרומות ישראל'." onClose={() => setCancel(null)}
         onYes={(reason) => run(() => api(`/documents/${cancel.id}/cancel`, { method: 'POST', body: { reason } }), 'בוטל והופק זיכוי').then(() => { setCancel(null); onChange?.(); })} />}
-    </div>
+    </>
   );
 }
 

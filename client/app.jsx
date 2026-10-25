@@ -9,6 +9,7 @@ import { InstallPrompt, HelpPage } from './onboarding.jsx';
 import { Icon, SourceBadge } from './icons.jsx';
 import { NewDonation, NewKeva, ResourceForm } from './crm.jsx';
 import { LiveUpdates } from './live.jsx';
+import { InboxPage, GlobalSearch, ViewToggle } from './inbox.jsx';
 
 // תפריט לפי הרשאה. perm = המפתח בשרת (roles.js)
 const MENU = [
@@ -18,6 +19,7 @@ const MENU = [
   { to: '/app/transactions', label: 'יומן תנועות מאוחד', short: 'תנועות', icon: 'shekel', perm: 'tx.read' },
   { to: '/app/keva', label: 'הוראות קבע', short: 'הו"ק', icon: 'repeat', perm: 'keva.read' },
   { to: '/app/documents', label: 'קבלות ומסמכים', short: 'קבלות', icon: 'receipt', perm: 'docs.read' },
+  { to: '/app/inbox', label: 'הודעות צוות', short: 'הודעות', icon: 'mail', perm: 'staff', badge: 'inbox' },
   { grp: 'גיוס ושימור' },
   { to: '/app/calls', label: 'מוקד טלפוני', short: 'מוקד', icon: 'phone', perm: 'calls.read', badge: 'tasks' },
   { to: '/app/field', label: 'אפליקציית שטח', short: 'שטח', icon: 'mobile', perm: 'field.use' },
@@ -341,6 +343,7 @@ const ROUTES = [
   ['/app/profile', ProfilePage],
   ['/app/dev', DevPage],
   ['/app/help', HelpPage],
+  ['/app/inbox', InboxPage],
 ];
 
 export function AppShell({ site }) {
@@ -350,13 +353,15 @@ export function AppShell({ site }) {
   const [sideOpen, setSideOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(() => { try { return localStorage.getItem('oy_demo') || ''; } catch { return ''; } });
   const [counts, setCounts] = useState({});
+  const [liveTick, setLiveTick] = useState(0);
   const loadMe = () => api('/auth/me').then((d) => { if (!d.user) { navigate('/login', { replace: true }); return; } setPerms(d.perms); setMe(d); });
   useEffect(() => { loadMe(); }, []);
   useEffect(() => { if (me?.user) api('/meta').then(setMeta).catch(() => {}); }, [me?.user?.active_role]);
   useEffect(() => {
     if (!me?.user) return;
-    api('/dashboard').then((d) => setCounts({ tasks: d.tasks?.c, boxes: d.boxesDue?.c, aid: d.aidOpen?.c, contact: d.contactOpen?.c, spiritual: d.spiritualPending?.c })).catch(() => {});
-  }, [me?.user?.active_role, path]);
+    Promise.all([api('/dashboard').catch(() => ({})), api('/inbox').catch(() => ({}))]).then(([d, ib]) => setCounts({ tasks: d.tasks?.c, boxes: d.boxesDue?.c, aid: d.aidOpen?.c, contact: d.contactOpen?.c, spiritual: d.spiritualPending?.c, inbox: ib.unread }));
+  }, [me?.user?.active_role, path, liveTick]);
+  useEffect(() => { const on = () => setLiveTick((t) => t + 1); window.addEventListener('oy:refresh', on); return () => window.removeEventListener('oy:refresh', on); }, []);
   useEffect(() => setSideOpen(false), [path]);
   useEffect(() => { try { localStorage.setItem('oy_demo', demoMode); } catch { /* */ } }, [demoMode]);
   if (!me?.user || !meta) return <Spinner />;
@@ -381,7 +386,7 @@ export function AppShell({ site }) {
               <Link key={m.to} to={m.to}><Icon name={m.icon} size={19} />{m.label}{m.dev && <span className="dev-tag">מתכנת</span>}{m.badge && counts[m.badge] ? <span className="badge">{counts[m.badge]}</span> : null}</Link>
             ))}
           </nav>
-          <div style={{ padding: 10 }}><Link to="/" className="small" style={{ color: '#9fb0d3' }}>← לאתר הציבורי</Link></div>
+          <div style={{ padding: 10 }}><ViewToggle /><Link to="/" className="small" style={{ color: '#9fb0d3' }}>← לאתר הציבורי</Link></div>
         </aside>
         <div className="main">
           <div className="topbar">
@@ -397,6 +402,7 @@ export function AppShell({ site }) {
                 {(user.view_roles || user.roles).map((r) => <option key={r} value={r}>תצוגת {me.roles[r]?.label}</option>)}
               </select>
             )}
+            <GlobalSearch />
             <Notifications />
             <Link to="/app/profile" className="btn ghost sm topbar-name">{user.name}</Link>
             <button className="btn sm" onClick={async () => { await api('/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}>יציאה</button>

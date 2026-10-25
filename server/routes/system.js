@@ -10,7 +10,7 @@ import { CATEGORIES, CAPABILITY_LABELS, getProvider } from '../providers/registr
 import { toHebrew, nextOccurrence, isoDate, HEB_MONTHS } from '../lib/hebrew.js';
 import { runDailyAutomations } from '../automations.js';
 import { normalizePhone } from '../lib/security.js';
-import { RESOURCES } from '../resources.js';
+import { RESOURCES, OPTIONS } from '../resources.js';
 import { seedDemo, clearDemo, demoCounts } from '../seed.js';
 
 const DONOR_LABEL = "TRIM(COALESCE(d.title || ' ','') || COALESCE(d.first_name,'') || ' ' || COALESCE(d.last_name,''))";
@@ -272,6 +272,21 @@ export function registerSystemRoutes(r) {
     const header = Object.fromEntries(cols.map((c) => [c, res.fields.find((f) => f.key === c)?.label || c]));
     const mapped = rows.map((r0) => Object.fromEntries(cols.map((c) => [header[c], r0[c]])));
     await audit(ctx.user, 'export', ctx.params.res, null, { count: rows.length });
+    // לאקסל: הדפדפן בונה קובץ xlsx מהנתונים, עם ערכי בחירה בעברית
+    if (ctx.query.format === 'json') {
+      const optLabel = (f, v) => (f?.type === 'select' ? (OPTIONS[f.options] || []).find((o) => o.value === v)?.label || v : v);
+      ctx.json(200, { headers: cols.map((c) => header[c]), rows: rows.map((r0) => cols.map((c) => {
+        const f = res.fields.find((x) => x.key === c);
+        const v = r0[c];
+        if (v === null || v === undefined) return '';
+        if (Array.isArray(v)) return v.join(', ');
+        if (v instanceof Date) return v.toISOString().slice(0, 10);
+        if (typeof v === 'object') return JSON.stringify(v);
+        if (f?.type === 'bool') return v ? 'כן' : 'לא';
+        return optLabel(f, v);
+      })) });
+      return;
+    }
     ctx.send(200, toCsv(mapped), 'text/csv; charset=utf-8', { 'Content-Disposition': `attachment; filename="${ctx.params.res}.csv"` });
   });
 

@@ -4,6 +4,9 @@ import './styles.css';
 import { RouterProvider, useRoute, api, Toasts, Spinner, UpdateBanner } from './lib.jsx';
 import { PublicSite } from './site.jsx';
 import { AppShell, Login } from './app.jsx';
+import { applyViewMode } from './inbox.jsx';
+
+applyViewMode();
 
 // דיווח שגיאות דפדפן לשרת (לדוח המצב)
 let reported = 0;

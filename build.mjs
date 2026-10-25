@@ -30,7 +30,7 @@ await esbuild.build({
   loader: { '.js': 'jsx', '.jsx': 'jsx' },
   define: { 'process.env.NODE_ENV': '"production"', __BUILD_ID__: JSON.stringify(v) },
   outfile: path.join(out, 'assets', 'app.js'),
-  nodePaths: process.env.EXTRA_NODE_PATH ? [process.env.EXTRA_NODE_PATH] : [],
+  nodePaths: process.env.EXTRA_NODE_PATH ? process.env.EXTRA_NODE_PATH.split(':').filter(Boolean) : [],
   logLevel: 'info',
 });
 } catch (e) {
