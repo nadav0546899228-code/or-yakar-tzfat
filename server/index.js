@@ -15,6 +15,7 @@ import { registerDiagRoutes, logError } from './routes/diag.js';
 import { registerSettlementRoutes } from './routes/settlements.js';
 import { registerExtraRoutes } from './routes/extra.js';
 import { registerCommunityRoutes } from './routes/community.js';
+import { registerNedarimRoutes, ensureRefundPolicy } from './routes/nedarim.js';
 import { ensureDefaults } from './settings.js';
 import { runDailyAutomations } from './automations.js';
 import { envInfo, isPublished } from './env.js';
@@ -50,6 +51,7 @@ router.get('/api/live', async (ctx) => {
 registerSettlementRoutes(router);
 registerExtraRoutes(router);
 registerCommunityRoutes(router);
+registerNedarimRoutes(router);
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
 router.get('/api/health', async (ctx) => ctx.json(200, { ok: true, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() }));
 
@@ -119,7 +121,7 @@ const server = http.createServer(async (req, res) => {
     "img-src 'self' data: blob: https:",
     "media-src 'self' https:",
     "connect-src 'self' https://accounts.google.com",
-    "frame-src https://accounts.google.com https://maps.google.com https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
+    "frame-src https://matara.pro https://www.matara.pro https://accounts.google.com https://maps.google.com https://www.google.com https://www.youtube.com https://www.youtube-nocookie.com",
     "frame-ancestors 'self' https://replit.com https://*.replit.com https://*.replit.dev",
     "object-src 'none'",
     "base-uri 'self'",
@@ -206,6 +208,7 @@ async function initDb() {
   await encryptPlainBankRefs();
   await ensureDefaults();
   await seedInstitutions();
+  await ensureRefundPolicy();
   await bootstrapOwner();
 }
 

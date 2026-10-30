@@ -199,14 +199,67 @@ function DiagTab() {
   );
 }
 
+
+// ---------- בדיקות נדרים פלוס ----------
+function NedarimTab() {
+  const { data, reload } = useApi('/nedarim/tests');
+  const [clear, setClear] = useState(false);
+  if (!data) return <Spinner />;
+  const m = data.mode;
+  const st = { paid: ['ok', 'הצליח'], failed: ['bad', 'נכשל'], pending: ['warn', 'ממתין'], cancelled: ['', 'בוטל'] };
+  return (
+    <div className="stack">
+      <div className={`notice ${m.test ? 'warn' : ''}`}>
+        <b>{m.test ? 'מצב בדיקה - אין חיוב אמיתי' : 'מצב אמיתי - חיובים אמיתיים'}</b> · מוסד <bdi dir="ltr">{m.mosad}</bdi>.
+        {m.test && ' מעבר למוסד האמיתי (7000318) נעול עד אישור: נדרשים APP_MODE=production, FORCE_SANDBOX=false, NEDARIM_LIVE=true ו-NEDARIM_API_VALID_LIVE ב-Secrets של האתר המפורסם.'}
+      </div>
+      <div className="card">
+        <h3>כתובת CallBack</h3>
+        <code className="input" style={{ direction: 'ltr', fontSize: 12, wordBreak: 'break-all' }}>{data.callback_url}</code>
+        <div className="small muted">נשלחת אוטומטית בכל עסקה, יחד עם CallBackMailError במוסד הבדיקות.</div>
+      </div>
+      <div className="card">
+        <h3>לקוחות דמה ותרחישים</h3>
+        <p>לקוחות דמה קיימים: <b>{data.dummies}</b> · ת.ז לבדיקה: <bdi dir="ltr">{data.test_id}</bdi></p>
+        <div className="row">
+          <button className="btn primary" disabled={m.published} onClick={() => run(() => api('/nedarim/dummies', { method: 'POST' }), (r) => r.message).then(reload)}>יצירת לקוחות דמה</button>
+          <button className="btn danger" onClick={() => setClear(true)}>מחיקת כל נתוני הבדיקה</button>
+        </div>
+        <div className="table-wrap" style={{ marginTop: 12 }}><table className="t"><thead><tr><th>#</th><th>תרחיש</th><th>סכום</th><th>כרטיס להקלדה</th><th></th></tr></thead>
+          <tbody>{data.scenarios.map((s) => {
+            const c = data.cards[s.card ?? 0];
+            return <tr key={s.id}><td>{s.id}</td><td>{s.title}</td><td>{s.amount ? money(s.amount) : '-'}</td>
+              <td className="small">{s.redirect ? 'בדף התשלום של נדרים: לכתוב בשדה השם "בדיקת הפניה"' : s.double ? 'אוטומטי, בלי כרטיס' : <>{c.brand} <bdi dir="ltr">{c.number}</bdi> · <bdi dir="ltr">{s.bad_tokef || c.tokef}</bdi> · CVV <bdi dir="ltr">{c.cvv}</bdi></>}</td>
+              <td>{s.redirect ? <a className="btn sm" href={`https://www.matara.pro/nedarimplus/online/?mosad=${m.mosad}`} target="_blank" rel="noopener">פתיחה</a>
+                : s.double ? <button className="btn sm" onClick={() => run(() => api('/nedarim/double-test', { method: 'POST' }), (r) => r.message).then(reload)}>הרצה</button>
+                : <a className="btn sm" href={`/donate?scenario=${s.id}`} target="_blank" rel="noopener">פתיחה</a>}</td></tr>;
+          })}</tbody></table></div>
+      </div>
+      <div className="card">
+        <div className="row between"><h3>תוצאות אחרונות</h3><button className="btn sm" onClick={reload}>רענון</button></div>
+        <div className="table-wrap"><table className="t"><thead><tr><th>מתי</th><th>תרחיש</th><th>תורם</th><th>סכום</th><th>תשובת נדרים</th><th>סטטוס במערכת</th><th>CallBack</th></tr></thead>
+          <tbody>{data.rows.map((r) => <tr key={r.id}><td className="small">{datetime(r.at)}</td><td>{r.scenario || '-'}{r.test && <Tag kind="warn">בדיקה</Tag>}</td><td>{r.donor}</td>
+            <td>{money(r.amount)}{r.installments > 1 ? ` (${r.installments} תש׳)` : ''}{r.kind === 'keva' ? ' הו"ק' : ''}</td>
+            <td className="small">{r.response || r.reason || '-'}</td>
+            <td><Tag kind={(st[r.status] || [])[0]}>{(st[r.status] || [r.status, r.status])[1]}</Tag></td>
+            <td>{r.callback ? <Tag kind="ok">התקבל</Tag> : <Tag>לא</Tag>}</td></tr>)}
+          {!data.rows.length && <tr><td colSpan={7} className="muted">עוד לא בוצעו בדיקות</td></tr>}</tbody></table></div>
+      </div>
+      {clear && <Confirm danger confirmWord="מחק בדיקות" title="מחיקת נתוני בדיקה" text="יימחקו כל תנועות מוסד הבדיקות ולקוחות הדמה של נדרים. נתונים אמיתיים לא יושפעו." onClose={() => setClear(false)}
+        onYes={() => run(() => api('/nedarim/dummies/clear', { method: 'POST' }), (r) => r.message).then(() => { setClear(false); reload(); })} />}
+    </div>
+  );
+}
+
 export function DevPage() {
   const [tab, setTab] = useState('providers');
-  const tabs = [['providers', 'חיבורים ו-API'], ['site', 'תוכן האתר והגדרות'], ['demo', 'נתוני דוגמה'], ['diag', 'דוח מצב'], ['system', 'מערכת']];
+  const tabs = [['providers', 'חיבורים ו-API'], ['nedarim', 'בדיקות נדרים פלוס'], ['site', 'תוכן האתר והגדרות'], ['demo', 'נתוני דוגמה'], ['diag', 'דוח מצב'], ['system', 'מערכת']];
   return (
     <div>
       <div className="page-head"><h1>מסך המתכנת</h1></div>
       <div className="tabs">{tabs.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}</div>
       {tab === 'providers' && <ProvidersTab />}
+      {tab === 'nedarim' && <NedarimTab />}
       {tab === 'site' && <SiteTab />}
       {tab === 'demo' && <DemoTab />}
       {tab === 'diag' && <DiagTab />}

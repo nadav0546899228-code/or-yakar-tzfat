@@ -55,7 +55,7 @@ function Footer({ org, site }) {
           <h4>ניווט</h4>
           <div className="stack small">
             {site.nav.map((n) => <div key={n.path}><Link to={n.path}>{n.label}</Link></div>)}
-            <div><Link to="/terms">תקנון האתר</Link></div>
+            <div><Link to="/terms">תקנון האתר ומדיניות ביטול</Link></div>
             <div><Link to="/my">אזור תורם - הקבלות והתרומות שלי</Link></div>
             <div><Link to="/login">כניסת צוות</Link></div>
           </div>
@@ -251,6 +251,140 @@ function DonorArea() {
   );
 }
 
+
+// ---------- דף תרומה מאובטח (אייפרם נדרים פלוס) ----------
+const PRESETS = [36, 52, 100, 180, 360, 500];
+function newAjaxId() { return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
+function DonatePage({ org }) {
+  const [cfg, setCfg] = useState(null);
+  const [f, setF] = useState({ first_name: '', last_name: '', id_number: '', phone: '', email: '', street: '', city: '', amount: 180, payment_type: 'Ragil', installments: 1, groupe: '', comment: '' });
+  const [scenario, setScenario] = useState(null);
+  const [frameH, setFrameH] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  const frameRef = React.useRef(null);
+  const pending = React.useRef(null);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  useEffect(() => {
+    api('/public/nedarim/config').then((c) => {
+      setCfg(c);
+      const n = Number(new URLSearchParams(window.location.search).get('scenario'));
+      const sc = c.scenarios.find((x) => x.id === n);
+      if (sc) {
+        setScenario(sc);
+        const d = c.dummies[sc.donor] || {};
+        setF((v) => ({ ...v, ...d, street: 'מעלה הרמ"ק 2', city: 'צפת', amount: sc.amount, payment_type: sc.payment_type, installments: sc.installments, comment: `תרחיש בדיקה ${sc.id}: ${sc.title}` }));
+      }
+    }).catch((e) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    const onMsg = (event) => {
+      let host = '';
+      try { host = new URL(event.origin).hostname; } catch { return; }
+      if (!/(^|\.)matara\.pro$/.test(host)) return;
+      const d = event.data || {};
+      if (d.Name === 'Height') setFrameH(parseInt(d.Value, 10) + 15);
+      if (d.Name === 'TransactionResponse') {
+        const p = pending.current;
+        if (!p) return;
+        api('/public/nedarim/result', { method: 'POST', body: { tx_id: p.tx_id, ajax_id: p.ajax_id, response: d.Value } })
+          .then((r) => {
+            if (r.status === 'failed') { setError(d.Value?.Message || 'העסקה נדחתה. אפשר לבדוק את הפרטים ולנסות שוב'); pending.current = null; }
+            else setResult(r);
+          })
+          .catch((e) => setError(e.message))
+          .finally(() => setBusy(false));
+      }
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, []);
+
+  const pay = async (e) => {
+    e.preventDefault();
+    if (busy) return;
+    setError('');
+    setBusy(true);
+    try {
+      const ajax_id = newAjaxId();
+      const start = await api('/public/nedarim/start', { method: 'POST', body: { ...f, ajax_id, scenario: scenario?.id || null } });
+      pending.current = start;
+      frameRef.current.contentWindow.postMessage({
+        Name: 'FinishTransaction2',
+        Value: {
+          Mosad: cfg.mosad, ApiValid: cfg.api_valid, PaymentType: f.payment_type, Currency: '1',
+          Zeout: f.id_number, FirstName: f.first_name, LastName: f.last_name, Street: f.street, City: f.city,
+          Phone: f.phone, Mail: f.email, Amount: String(f.amount), Tashlumim: String(f.installments || 1),
+          Groupe: f.groupe, Comment: f.comment, Param1: String(start.tx_id), Param2: start.ajax_id,
+          CallBack: cfg.callback_url, CallBackMailError: cfg.callback_mail_error, AjaxId: start.ajax_id,
+          ...(scenario?.bad_tokef ? { Tokef: scenario.bad_tokef } : {}),
+        },
+      }, '*');
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  if (!cfg) return <section className="section">{error ? <div className="notice">{error}</div> : 'טוען...'}</section>;
+  if (result) {
+    return (
+      <section className="section" style={{ textAlign: 'center' }}>
+        <h2>תודה רבה!</h2>
+        <p>{result.status === 'paid' ? 'התרומה התקבלה בהצלחה.' : 'התרומה נקלטה וממתינה לאישור הסליקה.'}</p>
+        {result.test && <div className="notice warn">מצב בדיקה (מוסד 0): לא בוצע חיוב אמיתי ולא הופקה קבלה.</div>}
+        <Link className="btn primary" to="/">לדף הבית</Link>
+      </section>
+    );
+  }
+  const card = scenario ? cfg.cards[scenario.card] : null;
+  return (
+    <section className="section">
+      {cfg.test && <div className="notice warn" style={{ marginBottom: 12 }}><b>מצב בדיקה - אין חיוב אמיתי.</b> העסקאות עוברות במוסד הבדיקות של נדרים פלוס (0), בלי חיוב ובלי קבלה.</div>}
+      {scenario && card && (
+        <div className="notice small" style={{ marginBottom: 12 }}>
+          <b>תרחיש {scenario.id}: {scenario.title}.</b> להקליד באייפרם: {card.brand} <bdi dir="ltr">{card.number}</bdi> · תוקף <bdi dir="ltr">{scenario.bad_tokef || card.tokef}</bdi> · CVV <bdi dir="ltr">{card.cvv}</bdi> · ת.ז <bdi dir="ltr">890108558</bdi>
+          {scenario.expect === 'Error' && ' · צפוי: דחייה'}
+        </div>
+      )}
+      <form className="stack" onSubmit={pay} style={{ maxWidth: 720, margin: '0 auto' }}>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+          {PRESETS.map((a) => <button type="button" key={a} style={{ flex: '1 0 28%' }} className={`btn ${Number(f.amount) === a ? 'primary' : ''}`} onClick={() => setF({ ...f, amount: a })}>{a} ₪</button>)}
+        </div>
+        <div className="grid2">
+          <Field label="סכום (₪)"><input className="input" type="number" min="1" required value={f.amount} onChange={set('amount')} /></Field>
+          <Field label="סוג תרומה">
+            <select className="input" value={f.payment_type} onChange={(e) => setF({ ...f, payment_type: e.target.value, installments: e.target.value === 'HK' ? 12 : 1 })}>
+              <option value="Ragil">תרומה חד פעמית</option><option value="HK">הוראת קבע חודשית</option>
+            </select>
+          </Field>
+          <Field label={f.payment_type === 'HK' ? 'מספר חודשים' : 'מספר תשלומים'}><input className="input" type="number" min="1" max="36" value={f.installments} onChange={set('installments')} /></Field>
+          <Field label="מטרת התרומה">
+            <select className="input" value={f.groupe} onChange={set('groupe')}><option value="">תרומה כללית</option>{cfg.purposes.map((p) => <option key={p}>{p}</option>)}</select>
+          </Field>
+          <Field label="שם פרטי"><input className="input" required value={f.first_name} onChange={set('first_name')} /></Field>
+          <Field label="שם משפחה"><input className="input" value={f.last_name} onChange={set('last_name')} /></Field>
+          <Field label="ת.ז (לקבלה לפי סעיף 46)"><input className="input" inputMode="numeric" value={f.id_number} onChange={set('id_number')} /></Field>
+          <Field label="טלפון"><input className="input" inputMode="tel" value={f.phone} onChange={set('phone')} /></Field>
+          <Field label="מייל"><input className="input" type="email" value={f.email} onChange={set('email')} /></Field>
+          <Field label="רחוב"><input className="input" value={f.street} onChange={set('street')} /></Field>
+          <Field label="עיר"><input className="input" value={f.city} onChange={set('city')} /></Field>
+          <Field label="הקדשה / הערה"><input className="input" value={f.comment} onChange={set('comment')} /></Field>
+        </div>
+        <input type="text" name="website" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+        <iframe ref={frameRef} title="תשלום מאובטח - נדרים פלוס" src={cfg.iframe_url} style={{ width: '100%', border: 0, height: frameH || 320 }}
+          onLoad={() => frameRef.current?.contentWindow.postMessage({ Name: 'GetHeight' }, '*')} />
+        {error && <div className="notice" style={{ color: 'var(--bad)' }}>{error}</div>}
+        <button className="btn gold" disabled={busy}>{busy ? 'מעבד תשלום, נא להמתין...' : `ביצוע תשלום ${Number(f.amount || 0).toLocaleString('he-IL')} ₪`}</button>
+        <div className="small muted">התשלום מתבצע בדף מאובטח של נדרים פלוס. פרטי הכרטיס אינם נשמרים באתר. <Link to="/terms">תקנון ומדיניות ביטול</Link></div>
+      </form>
+    </section>
+  );
+}
+
 export function PublicSite({ data }) {
   const { path } = useRoute();
   const { org, site, env } = data;
@@ -273,6 +407,8 @@ export function PublicSite({ data }) {
     );
   } else if (key === 'my') {
     content = <><div className="page-hero"><div className="inner"><h1>אזור התורם</h1></div></div><DonorArea /></>;
+  } else if (key === 'donate') {
+    content = <><div className="page-hero"><div className="inner"><h1>תרומה מאובטחת</h1><div className="kicker">{org.name}</div></div></div><DonatePage org={org} /></>;
   } else if (key === 'ner') {
     content = <><div className="page-hero"><div className="inner"><h1>רישום שמות לתפילה והנצחה</h1><div className="kicker">תפילה בקבר האר"י הקדוש, אזכרות ולימוד לעילוי נשמה</div></div></div><NerPage org={org} /></>;
   } else if (page) {
