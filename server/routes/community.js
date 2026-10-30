@@ -1,3 +1,4 @@
+import { rewriteDonationLinks } from './nedarim.js';
 // לוח מודעות דיגיטלי ודף קמפיין גיוס המונים - שני מסכים ציבוריים בלי כניסה למערכת
 import { one, many, query, insert } from '../lib/db.js';
 import { HttpError } from '../lib/router.js';
@@ -83,7 +84,7 @@ export function registerCommunityRoutes(r) {
       progress: prog,
       teams: teams.map((t) => ({ ...t, total: Math.round(t.raised * prog.matching) })),
       recent: recent.map((x) => ({ id: x.id, name: x.is_anonymous ? 'תורם/ת בעילום שם' : (x.display_name || 'תורם/ת'), amount: x.amount, message: x.public_message, team: x.team, at: x.created_at })),
-      org: { name: org?.short_name || org?.name, logo_url: org?.logo_url, donation_url: org?.donation_url },
+      org: { name: org?.short_name || org?.name, logo_url: org?.logo_url, donation_url: rewriteDonationLinks(org?.donation_url) },
       sandbox: isSandbox(),
     });
   });
@@ -113,7 +114,7 @@ export function registerCommunityRoutes(r) {
       notes: sandbox ? 'תרומה מדף הקמפיין (הדמיה - לא נגבה כסף)' : 'תרומה מדף הקמפיין - ממתינה לאישור הסליקה',
     }, null);
     await notify({ title: `תרומה בקמפיין ${c.name}`, body: `${b.anonymous ? 'בעילום שם' : name} · ${amount.toLocaleString('he-IL')} ₪${sandbox ? ' (הדמיה)' : ''}`, link: '/app/transactions', roles: ['developer', 'manager', 'vp', 'treasurer'] });
-    if (!sandbox && c.donation_url) { ctx.json(200, { ok: true, redirect: c.donation_url, tx: row.id }); return; }
+    if (!sandbox && c.donation_url) { ctx.json(200, { ok: true, redirect: rewriteDonationLinks(c.donation_url), tx: row.id }); return; }
     ctx.json(200, { ok: true, sandbox, tx: row.id });
   });
 }

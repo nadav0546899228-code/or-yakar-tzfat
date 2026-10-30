@@ -46,6 +46,18 @@ export function nedarimMode() {
   return live ? { test: false, mosad: null, api_valid: liveKey } : { test: true, ...TEST };
 }
 
+// בתקופת ההרצה (מוסד בדיקות) כל קישורי התרומה של נדרים באתר מופנים לדף התרומה שלנו
+export function rewriteDonationLinks(obj) {
+  if (!nedarimMode().test) return obj;
+  const walk = (v) => {
+    if (typeof v === 'string') return /matara\.pro\/nedarimplus\/online/i.test(v) ? '/donate' : v;
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return walk(obj);
+}
+
 async function liveMosad() {
   const org = await getSetting('org');
   return String(org?.nedarim_mosad || '7000318');

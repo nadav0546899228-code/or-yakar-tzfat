@@ -1,3 +1,4 @@
+import { rewriteDonationLinks } from './nedarim.js';
 import { query, one, many, insert } from '../lib/db.js';
 import { HttpError } from '../lib/router.js';
 import { requirePerm, requireUser } from '../auth.js';
@@ -34,7 +35,7 @@ export function registerSystemRoutes(r) {
   // ---------- ציבורי ----------
   r.get('/api/public/site', async (ctx) => {
     const [org, theme, site] = await Promise.all([getSetting('org'), getSetting('theme'), getSetting('site')]);
-    ctx.json(200, { org, theme, site, env: envInfo(), hebrewToday: toHebrew(new Date()).text });
+    ctx.json(200, { org: rewriteDonationLinks(org), theme, site: rewriteDonationLinks(site), env: envInfo(), hebrewToday: toHebrew(new Date()).text });
   });
 
   r.post('/api/public/contact', async (ctx) => {
@@ -57,7 +58,7 @@ export function registerSystemRoutes(r) {
       contact_name: contact_name || null, contact_phone: normalizePhone(contact_phone), source: 'website', status: 'pending',
     });
     const org = await getSetting('org');
-    ctx.json(200, { ok: true, donation_url: org.donation_url });
+    ctx.json(200, { ok: true, donation_url: rewriteDonationLinks(org.donation_url) });
   });
 
   r.get('/api/public/hebdate', async (ctx) => {

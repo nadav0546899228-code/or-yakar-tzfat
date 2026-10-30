@@ -13,6 +13,10 @@ function Icon({ name, size = 20 }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d={p} /></svg>;
 }
 
+function DonateLink({ href, className, children }) {
+  return href?.startsWith('/') ? <Link className={className} to={href}>{children}</Link> : <a className={className} href={href} target="_blank" rel="noopener">{children}</a>;
+}
+
 function Header({ site, org }) {
   const [open, setOpen] = useState(false);
   const { path } = useRoute();
@@ -24,7 +28,7 @@ function Header({ site, org }) {
         <nav className={`site-nav ${open ? 'open' : ''}`}>
           {site.nav.map((n) => <Link key={n.path} to={n.path}>{n.label}</Link>)}
         </nav>
-        <a className="btn gold hide-sm" href={org.donation_url} target="_blank" rel="noopener">תרומה לקהילה</a>
+        <DonateLink className="btn gold hide-sm" href={org.donation_url}>תרומה לקהילה</DonateLink>
         <button className="btn ghost burger" onClick={() => setOpen(!open)} aria-label="תפריט"><Icon name="menu" /></button>
       </div>
     </header>
@@ -39,7 +43,7 @@ function Footer({ org, site }) {
           <span className="logo-box"><Logo src={org.logo_url} alt={org.name} /></span>
           <h4>{org.short_name}</h4>
           <p>בואו לקחת חלק במפעל הקדוש</p>
-          <a className="btn gold" href={org.donation_url} target="_blank" rel="noopener">לחצו לתרומה והשתתפו במצווה</a>
+          <DonateLink className="btn gold" href={org.donation_url}>לחצו לתרומה והשתתפו במצווה</DonateLink>
         </div>
         <div>
           <h4>יצירת קשר</h4>
@@ -108,7 +112,7 @@ function CtaBand({ org }) {
       <div className="inner">
         <div><h2>{org.short_name}</h2><div style={{ opacity: 0.9 }}>בואו לקחת חלק במפעל הקדוש</div></div>
         <div className="row">
-          <a className="btn gold" href={org.donation_url} target="_blank" rel="noopener">לחצו לתרומה והשתתפו במצווה</a>
+          <DonateLink className="btn gold" href={org.donation_url}>לחצו לתרומה והשתתפו במצווה</DonateLink>
           <a className="btn" href={phoneHref(org.phones[0])}>{org.phones[0]}</a>
         </div>
       </div>
@@ -175,7 +179,7 @@ function NerPage({ org }) {
         {done ? (
           <div className="stack">
             <div className="notice">השם נרשם בהצלחה. להשלמת ההשתתפות ניתן לתרום עכשיו:</div>
-            <a className="btn gold" href={done.donation_url} target="_blank" rel="noopener">מעבר לתרומה מאובטחת</a>
+            <DonateLink className="btn gold" href={done.donation_url}>מעבר לתרומה מאובטחת</DonateLink>
           </div>
         ) : (
           <form className="form-grid" onSubmit={submit}>
