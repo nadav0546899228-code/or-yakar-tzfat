@@ -222,7 +222,7 @@ function NedarimTab() {
         <h3>לקוחות דמה ותרחישים</h3>
         <p>לקוחות דמה קיימים: <b>{data.dummies}</b> · ת.ז לבדיקה: <bdi dir="ltr">{data.test_id}</bdi></p>
         <div className="row">
-          <button className="btn primary" disabled={m.published} onClick={() => run(() => api('/nedarim/dummies', { method: 'POST' }), (r) => r.message).then(reload)}>יצירת לקוחות דמה</button>
+          <button className="btn primary" disabled={!m.test} onClick={() => run(() => api('/nedarim/dummies', { method: 'POST' }), (r) => r.message).then(reload)}>יצירת לקוחות דמה</button>
           <button className="btn danger" onClick={() => setClear(true)}>מחיקת כל נתוני הבדיקה</button>
         </div>
         <div className="table-wrap" style={{ marginTop: 12 }}><table className="t"><thead><tr><th>#</th><th>תרחיש</th><th>סכום</th><th>כרטיס להקלדה</th><th></th></tr></thead>

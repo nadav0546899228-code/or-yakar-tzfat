@@ -133,7 +133,7 @@ export function registerNedarimRoutes(r) {
   r.get('/api/public/nedarim/config', async (ctx) => {
     const mode = nedarimMode();
     const inst = await many('SELECT name FROM institutions WHERE active = TRUE ORDER BY sort, id');
-    const showTests = mode.test && !isPublished();
+    const showTests = mode.test; // בתקופת ההרצה התרחישים זמינים גם באתר המפורסם, כל עוד מוסד הבדיקות פעיל
     ctx.json(200, {
       test: mode.test,
       mosad: mode.test ? TEST.mosad : await liveMosad(),
@@ -218,7 +218,7 @@ export function registerNedarimRoutes(r) {
 
   r.post('/api/nedarim/dummies', async (ctx) => {
     requirePerm(ctx, 'dev.only');
-    if (isPublished()) throw new HttpError(400, 'לקוחות דמה נוצרים רק באתר הפיתוח');
+    if (!nedarimMode().test) throw new HttpError(400, 'לקוחות דמה נוצרים רק במצב בדיקה');
     let created = 0;
     for (const [first, last, phone, email] of DUMMIES) {
       const ex = await one('SELECT id FROM donors WHERE phone = $1 AND $2 = ANY(tags)', [phone, DUMMY_TAG]);
