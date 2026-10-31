@@ -410,6 +410,8 @@ export function NewDonation({ donorId, preset = {}, onClose, onDone }) {
           <Field label="ספק סליקה"><select className="input" value={f.provider || 'cardcom'} onChange={set('provider')}>{['cardcom', 'tranzila', 'grow', 'payplus', 'nedarim'].map((p) => <option key={p} value={p}>{SOURCE_LABELS[p]}</option>)}</select></Field>
           <Field label="יום חיוב בחודש"><input className="input" type="number" min="1" max="28" value={f.day_of_month || 10} onChange={set('day_of_month')} /></Field>
           <Field label="מספר חודשים (ריק = ללא הגבלה)"><input className="input" type="number" value={f.months_total || ''} onChange={set('months_total')} /></Field>
+          <Field label="תוקף הכרטיס (MM/YY)"><input className="input num" placeholder="05/28" value={f.card_exp || ''} onChange={set('card_exp')} /></Field>
+          <div className="full"><label className="check"><input type="checkbox" checked={f.charge_mode === 'manual'} onChange={(e) => set('charge_mode')(e.target.checked ? 'manual' : 'auto')} />חיוב חודשי בהחלטה: הכרטיס נשמר, ובכל חודש מחליטים במסך "חיובים חודשיים" אם לחייב</label></div>
         </>}
         <Field label="מוסד"><RefPicker res="institutions" value={f.institution_id} onChange={set('institution_id')} /></Field>
         <Field label="קמפיין"><RefPicker res="campaigns" value={f.campaign_id} onChange={set('campaign_id')} /></Field>
@@ -801,7 +803,7 @@ export function KevaTable({ rows, onChange, hideDonor }) {
           <span className="tx-src"><Src s={k.source} short /></span>
           <span className="tx-main">
             <b className="tx-name">{hideDonor ? (k.type === 'bank' ? 'הו"ק בנקאית' : 'הו"ק באשראי') : k.donor_name}</b>
-            <span className="small muted">{k.type === 'bank' ? `בנק ${k.account_masked || ''}` : `אשראי ${k.card_last4 ? `****${k.card_last4}` : ''}`} · יום {k.day_of_month} · שולמו {k.months_paid}{k.months_total ? `/${k.months_total}` : ''}</span>
+            <span className="small muted">{k.type === 'bank' ? `בנק ${k.account_masked || ''}` : `אשראי ${k.card_last4 ? `****${k.card_last4}` : ''}`} {k.charge_mode === 'manual' ? ' · בהחלטה חודשית' : ''} · יום {k.day_of_month} · שולמו {k.months_paid}{k.months_total ? `/${k.months_total}` : ''}</span>
           </span>
           <span className="tx-amt num"><b>{money(k.amount, k.currency)}</b><span className="small">{(SO_STATUS[k.status] || [k.status])[0]}{k.failures > 0 ? ` · ${k.failures} כשלונות` : ''}</span></span>
           <span className="tx-act" onClick={(e) => e.stopPropagation()}><KevaActions k={k} onChange={onChange} /></span>
@@ -818,7 +820,7 @@ export function KevaTable({ rows, onChange, hideDonor }) {
               {!hideDonor && <td><Link to={`/app/donors/${k.donor_id}`}>{k.donor_name}</Link>{k.is_demo && <> <Tag kind="demo">דוגמה</Tag></>}</td>}
               <td className="num"><b>{money(k.amount, k.currency)}</b></td>
               <td><Src s={k.source} /></td>
-              <td className="small">{k.type === 'bank' ? `בנק ${k.bank_code || ''}-${k.branch_code || ''} ${k.account_masked || ''}` : `אשראי ${k.card_last4 ? `****${k.card_last4}` : ''}`}</td>
+              <td className="small">{k.type === 'bank' ? `בנק ${k.bank_code || ''}-${k.branch_code || ''} ${k.account_masked || ''}` : `אשראי ${k.card_last4 ? `****${k.card_last4}` : ''}`}{k.charge_mode === 'manual' && <> <Tag kind="info">בהחלטה חודשית</Tag></>}</td>
               <td>{k.day_of_month}</td>
               <td>{k.months_paid}{k.months_total ? `/${k.months_total}` : ''}</td>
               <td className="small">{date(k.end_date)}</td>

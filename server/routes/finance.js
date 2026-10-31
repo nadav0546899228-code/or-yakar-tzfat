@@ -277,7 +277,8 @@ export function registerFinanceRoutes(r) {
         donor_id: Number(b.donor_id), source: provider, external_id: `SBX-K-${Date.now()}`, type: 'credit', amount, currency: b.currency || 'ILS',
         day_of_month: Number(b.day_of_month) || new Date().getDate(), start_date: new Date().toISOString().slice(0, 10), months_total: b.months_total ? Number(b.months_total) : null,
         status: 'active', next_charge_date: b.start_date || new Date().toISOString().slice(0, 10), institution_id: b.institution_id || null, campaign_id: b.campaign_id || null,
-        card_last4: '0000', token_ref: 'SANDBOX-TOKEN', notes: 'הוקם מתוך המערכת (הדמיה)',
+        card_last4: '0000', token_ref: 'SANDBOX-TOKEN', charge_mode: b.charge_mode === 'manual' ? 'manual' : 'auto', card_exp: /^(0[1-9]|1[0-2])\/\d{2}$/.test(String(b.card_exp || '')) ? b.card_exp : null,
+        notes: b.charge_mode === 'manual' ? 'כרטיס שמור לחיוב חודשי בהחלטה (הדמיה)' : 'הוקם מתוך המערכת (הדמיה)',
       });
       await audit(ctx.user, 'keva_create', 'standing_order', so.id, { provider, amount });
       return ctx.json(200, { standing_order: so, sandbox: true, message: `הוראת קבע באשראי הוקמה ב${def.label} (הדמיה). בייצור התורם יוזן לדף סליקה מאובטח של הספק.` });

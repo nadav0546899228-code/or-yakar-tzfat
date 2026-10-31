@@ -11,6 +11,7 @@ import { NewDonation, NewKeva, ResourceForm } from './crm.jsx';
 import { LiveUpdates } from './live.jsx';
 import { InboxPage, GlobalSearch, ViewToggle } from './inbox.jsx';
 import { BoardsPage, CrowdfundingPage } from './community.jsx';
+import { MonthlyChargesPage, MonthlyHistoryPage } from './monthly.jsx';
 
 // תפריט לפי הרשאה. perm = המפתח בשרת (roles.js)
 const MENU = [
@@ -19,6 +20,7 @@ const MENU = [
   { to: '/app/donors', label: 'תורמים', icon: 'donors', perm: 'donors.read' },
   { to: '/app/transactions', label: 'יומן תנועות מאוחד', short: 'תנועות', icon: 'shekel', perm: 'tx.read' },
   { to: '/app/keva', label: 'הוראות קבע', short: 'הו"ק', icon: 'repeat', perm: 'keva.read' },
+  { to: '/app/monthly-charges', label: 'חיובים חודשיים', short: 'חיובים', icon: 'card', perm: 'keva.read' },
   { to: '/app/documents', label: 'קבלות ומסמכים', short: 'קבלות', icon: 'receipt', perm: 'docs.read' },
   { to: '/app/inbox', label: 'הודעות צוות', short: 'הודעות', icon: 'mail', perm: 'staff', badge: 'inbox' },
   { grp: 'גיוס ושימור' },
@@ -330,6 +332,8 @@ const ROUTES = [
   ['/app/donors/:id', DonorCard],
   ['/app/transactions', TransactionsPage],
   ['/app/keva', KevaPage],
+  ['/app/monthly-charges', MonthlyChargesPage],
+  ['/app/monthly-charges/history', MonthlyHistoryPage],
   ['/app/documents', DocumentsPage],
   ['/app/calls', CallsPage],
   ['/app/field', FieldPage],

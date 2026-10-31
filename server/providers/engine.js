@@ -340,6 +340,41 @@ export async function kevaAction(soId, action, user, extra = {}) {
   return { message };
 }
 
+
+// ---------- חיוב יזום של כרטיס שמור (טוקן) ----------
+// פרטי הכרטיס לא נמצאים אצלנו: נשמר רק token_ref שהספק החזיר. החיוב נשלח לספק עם הטוקן והסכום.
+// בסביבת פיתוח, או כשאין לספק מתאם ייצור, החיוב רץ בהדמיה ומסומן כך.
+export function cardExpState(cardExp, month) {
+  const m = /^(\d{1,2})\/(\d{2,4})$/.exec(String(cardExp || '').trim());
+  if (!m) return 'unknown';
+  const year = m[2].length === 2 ? 2000 + Number(m[2]) : Number(m[2]);
+  const exp = year * 12 + Number(m[1]);
+  const [y, mo] = String(month).split('-').map(Number);
+  const cur = y * 12 + mo;
+  if (exp < cur) return 'expired';
+  if (exp <= cur + 1) return 'expiring';
+  return 'ok';
+}
+
+export function tokenChargeIsSimulated(so) {
+  const def = getProvider(so.source);
+  return isSandbox() || !def || def.status === 'sim' || /^SANDBOX/.test(String(so.token_ref || ''));
+}
+
+export async function chargeToken(so, { amount, currency, month, description }) {
+  if (!so.token_ref) return { ok: false, message: 'אין כרטיס שמור (טוקן) להוראה זו', permanent: true };
+  if (cardExpState(so.card_exp, month) === 'expired') return { ok: false, message: 'תוקף הכרטיס פג - יש לעדכן כרטיס מול התורם', permanent: true };
+  if (tokenChargeIsSimulated(so)) {
+    const roll = Math.random();
+    if (roll < 0.88) return { ok: true, simulated: true, confirmation: `SBX-${Math.floor(1000000 + Math.random() * 8999999)}` };
+    const msg = roll < 0.95 ? 'סירוב חברת האשראי (הדמיה)' : 'כרטיס חסום (הדמיה)';
+    return { ok: false, simulated: true, message: msg, permanent: msg.includes('חסום') };
+  }
+  const label = getProvider(so.source)?.label || so.source;
+  // כאן יחובר מתאם הייצור של כל ספק (נדרים פלוס: חיוב בודד של הו"ק לפי מפתח המוסד) לאחר קבלת תיעוד ומפתחות
+  return { ok: false, message: `חיוב טוקן ב${label} טרם הופעל - נדרשים תיעוד API ומפתחות מהספק`, not_configured: true };
+}
+
 // ---------- מסמכים ----------
 export async function issueDocument({ transactionId, donorId, type = 'receipt46', amount, currency, lang, providerKey, description, annualYear }, user) {
   const tx = transactionId ? await one('SELECT * FROM transactions WHERE id = $1', [transactionId]) : null;

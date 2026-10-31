@@ -598,3 +598,42 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES cam
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS public_message TEXT;
+
+-- חיובים חודשיים יזומים: כרטיס שמור כטוקן אצל הספק, וההחלטה את מי לחייב מתקבלת ידנית בכל חודש
+ALTER TABLE standing_orders ADD COLUMN IF NOT EXISTS charge_mode TEXT NOT NULL DEFAULT 'auto';
+ALTER TABLE standing_orders ADD COLUMN IF NOT EXISTS card_exp TEXT;
+CREATE TABLE IF NOT EXISTS charge_batches (
+  id SERIAL PRIMARY KEY,
+  batch_month TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'processing',
+  issue_documents BOOLEAN NOT NULL DEFAULT FALSE,
+  total_selected INTEGER NOT NULL DEFAULT 0,
+  total_success INTEGER NOT NULL DEFAULT 0,
+  total_failed INTEGER NOT NULL DEFAULT 0,
+  total_skipped INTEGER NOT NULL DEFAULT 0,
+  amount_success NUMERIC(14,2) NOT NULL DEFAULT 0,
+  sandbox BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ
+);
+CREATE TABLE IF NOT EXISTS charge_batch_items (
+  id SERIAL PRIMARY KEY,
+  batch_id INTEGER NOT NULL REFERENCES charge_batches(id) ON DELETE CASCADE,
+  batch_month TEXT NOT NULL,
+  standing_order_id INTEGER REFERENCES standing_orders(id) ON DELETE CASCADE,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE SET NULL,
+  amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  currency TEXT NOT NULL DEFAULT 'ILS',
+  status TEXT NOT NULL DEFAULT 'processing',
+  confirmation TEXT,
+  transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+  document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+  error_message TEXT,
+  attempted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_demo BOOLEAN NOT NULL DEFAULT FALSE
+);
+-- מונע חיוב כפול של אותה הו"ק באותו חודש (גם בלחיצה כפולה או בשתי לשוניות)
+CREATE UNIQUE INDEX IF NOT EXISTS cbi_once_per_month_idx ON charge_batch_items (standing_order_id, batch_month) WHERE status IN ('processing', 'success');
+CREATE INDEX IF NOT EXISTS cbi_batch_idx ON charge_batch_items (batch_id);

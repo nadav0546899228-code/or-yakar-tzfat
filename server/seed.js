@@ -4,8 +4,18 @@ import { hashPin, bankRef } from './lib/security.js';
 import { isPublished } from './env.js';
 import crypto from 'node:crypto';
 
+// תוקף כרטיס לדוגמה (MM/YY): חלק פג, חלק פג בקרוב, השאר תקין
+function demoExp(i) {
+  const d = new Date();
+  d.setDate(1);
+  if (i % 7 === 0) d.setMonth(d.getMonth() - 2);
+  else if (i % 5 === 0) d.setMonth(d.getMonth() + 1);
+  else d.setFullYear(d.getFullYear() + 2);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getFullYear()).slice(-2)}`;
+}
+
 const DEMO_TABLES = [
-  'settlements', 'messages_out', 'notifications', 'box_collections', 'event_guests', 'call_tasks', 'pledges', 'interactions', 'donor_dates',
+  'charge_batch_items', 'charge_batches', 'settlements', 'messages_out', 'notifications', 'box_collections', 'event_guests', 'call_tasks', 'pledges', 'interactions', 'donor_dates',
   'spiritual_orders', 'aid_requests', 'transactions', 'documents', 'standing_orders', 'events', 'tzedaka_boxes', 'automations',
   'materials', 'segments', 'contact_messages', 'board_items', 'boards', 'campaign_teams', 'campaigns', 'purposes', 'donors', 'institutions',
 ];
@@ -134,8 +144,8 @@ export async function seedDemo() {
       donor_id: d.id, source: src, external_id: `DEMO-K-${i}`, type: src === 'masav' ? 'bank' : 'credit', amount: rnd([100, 150, 180, 260, 360, 500, 1000, 1800]),
       currency: d.currency || 'ILS', day_of_month: rnd([1, 10, 15, 20]), start_date: daysAgo(30 * (3 + (i % 20))), status,
       end_date: i % 6 === 0 ? daysAgo(-30 * (1 + (i % 3))) : null, months_paid: 3 + (i % 20), institution_id: insts[i % 4].id, purpose_id: purposes[i % purposes.length].id,
-      card_last4: src === 'masav' ? null : String(1000 + i * 37).slice(-4), bank_code: src === 'masav' ? '12' : null, branch_code: src === 'masav' ? '765' : null,
-      account_masked: src === 'masav' ? `****${String(1000 + i).slice(-4)}` : null, token_ref: src === 'masav' ? bankRef('12', '765', String(100000 + i)) : null,
+      card_last4: src === 'masav' ? null : String(1000 + i * 37).slice(-4), charge_mode: src !== 'masav' && i % 2 === 0 ? 'manual' : 'auto', card_exp: src === 'masav' ? null : demoExp(i), bank_code: src === 'masav' ? '12' : null, branch_code: src === 'masav' ? '765' : null,
+      account_masked: src === 'masav' ? `****${String(1000 + i).slice(-4)}` : null, token_ref: src === 'masav' ? bankRef('12', '765', String(100000 + i)) : `SANDBOX-TOKEN-${i}`,
       cancelled_at: status === 'cancelled' ? new Date(Date.now() - (i % 40) * 86400000) : null, cancel_reason: status === 'cancelled' ? rnd(['קושי כלכלי', 'כרטיס הוחלף', 'עבר לתרום במקום אחר']) : null,
       recruiter_user_id: i % 3 === 0 ? recruiter.id : null, failures: status === 'failed' ? 3 : 0, is_demo: true,
     });
