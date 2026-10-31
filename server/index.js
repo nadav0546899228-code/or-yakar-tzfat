@@ -55,7 +55,21 @@ registerCommunityRoutes(router);
 registerNedarimRoutes(router);
 registerMonthlyRoutes(router);
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
-router.get('/api/health', async (ctx) => ctx.json(200, { ok: true, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() }));
+// בדיקת מצב ציבורית (בלי נתונים רגישים): גרסה, בנייה וסטטוס מסד - כדי לוודא מבחוץ שעדכון נקלט
+const SERVER_VERSION = 'monthly-charges-v1';
+router.get('/api/health', async (ctx) => {
+  let build = null;
+  try { build = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'build.json'), 'utf8')); } catch { /* אין קובץ בנייה */ }
+  let features = null;
+  if (dbReady) {
+    try {
+      const t = await one("SELECT to_regclass('public.charge_batches') IS NOT NULL AS monthly_charges");
+      features = { monthly_charges: !!t?.monthly_charges };
+    } catch { /* לא קריטי */ }
+  }
+  ctx.json(200, { ok: true, version: SERVER_VERSION, build, features, started_at: STARTED_AT, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() });
+});
+const STARTED_AT = new Date().toISOString();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
