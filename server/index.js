@@ -10,7 +10,8 @@ import { setSecretKey, hashPin, normalizePhone, randomToken, bankRef, parseBankR
 import { loadSession, registerAuthRoutes } from './auth.js';
 import { registerCrudRoutes } from './routes/crud.js';
 import { registerFinanceRoutes } from './routes/finance.js';
-import { registerSystemRoutes } from './routes/system.js';
+import { registerSystemRoutes, publicSitePayload } from './routes/system.js';
+import zlib from 'node:zlib';
 import { registerDiagRoutes, logError } from './routes/diag.js';
 import { registerSettlementRoutes } from './routes/settlements.js';
 import { registerExtraRoutes } from './routes/extra.js';
@@ -97,29 +98,59 @@ function siteOrigin(req) {
   return `${proto}://${host}`;
 }
 let indexCache = null;
-function sendIndex(req, res) {
+const acceptsBr = (req) => /\bbr\b/.test(String(req.headers['accept-encoding'] || ''));
+const acceptsGz = (req) => /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+async function sendIndex(req, res) {
   const file = path.join(PUBLIC, 'index.html');
   if (!fs.existsSync(file)) return false;
   const mtime = fs.statSync(file).mtimeMs;
   if (!indexCache || indexCache.mtime !== mtime) indexCache = { mtime, html: fs.readFileSync(file, 'utf8') };
-  const html = indexCache.html.replaceAll('__ORIGIN__', siteOrigin(req));
-  res.writeHead(200, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' });
-  res.end(html);
+  let html = indexCache.html.replaceAll('__ORIGIN__', siteOrigin(req));
+  // הטמעת נתוני האתר בדף: הדף מוצג מיד בלי לחכות לבקשה נוספת לשרת
+  if (dbReady) {
+    try {
+      const data = JSON.stringify(await publicSitePayload()).replace(/</g, '\\u003c');
+      html = html.replace('<!--SITE_DATA-->', `<script type="application/json" id="site-data">${data}</script>`);
+    } catch { /* הדף ימשוך את הנתונים בעצמו */ }
+  }
+  const headers = { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' };
+  if (acceptsGz(req)) {
+    const gz = zlib.gzipSync(html, { level: 6 });
+    res.writeHead(200, { ...headers, 'Content-Encoding': 'gzip', 'Content-Length': gz.length });
+    res.end(req.method === 'HEAD' ? undefined : gz);
+    return true;
+  }
+  res.writeHead(200, headers);
+  res.end(req.method === 'HEAD' ? undefined : html);
   return true;
 }
 
-function serveStatic(req, res, pathname) {
+async function serveStatic(req, res, pathname) {
   if (!isPublished() && DEV_ASSETS[pathname]) pathname = DEV_ASSETS[pathname];
   if (pathname === '/' || pathname === '/index.html') return sendIndex(req, res);
-  let file = path.normalize(path.join(PUBLIC, pathname));
-  if (!file.startsWith(PUBLIC)) return false;
-  if (fs.existsSync(file) && fs.statSync(file).isFile()) {
+  const file = path.normalize(path.join(PUBLIC, pathname));
+  if (!file.startsWith(PUBLIC + path.sep)) return false;
+  let stat = null;
+  try { stat = fs.statSync(file); } catch { /* לא קיים */ }
+  if (stat && stat.isFile()) {
     const ext = path.extname(file);
-    const cache = pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache';
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': cache });
-    fs.createReadStream(file).pipe(res);
+    const isAsset = pathname.startsWith('/assets/');
+    // קטעי קוד עם גיבוב בשם לא משתנים לעולם; main.js/main.css מגיעים תמיד עם ?v= של הבנייה
+    const cache = isAsset ? 'public, max-age=31536000, immutable' : (/\.(png|jpg|webp|ico|woff2)$/.test(ext) ? 'public, max-age=86400' : 'no-cache');
+    const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': cache, Vary: 'Accept-Encoding' };
+    let serve = file;
+    if (isAsset && /\.(js|css)$/.test(ext)) {
+      if (acceptsBr(req) && fs.existsSync(`${file}.br`)) { serve = `${file}.br`; headers['Content-Encoding'] = 'br'; }
+      else if (acceptsGz(req) && fs.existsSync(`${file}.gz`)) { serve = `${file}.gz`; headers['Content-Encoding'] = 'gzip'; }
+    }
+    headers['Content-Length'] = fs.statSync(serve).size;
+    res.writeHead(200, headers);
+    if (req.method === 'HEAD') { res.end(); return true; }
+    fs.createReadStream(serve).pipe(res);
     return true;
   }
+  // קובץ קוד שלא קיים (גרסה ישנה) - 404 אמיתי, כדי שהדפדפן יטען מחדש ולא יקבל דף HTML במקום קוד
+  if (pathname.startsWith('/assets/')) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end('not found'); return true; }
   return sendIndex(req, res);
 }
 
@@ -147,7 +178,7 @@ const server = http.createServer(async (req, res) => {
   const { pathname } = ctx.url;
   if (!pathname.startsWith('/api/')) {
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
-    if (!serveStatic(req, res, pathname)) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('האתר בבנייה - יש להריץ npm run build'); }
+    if (!(await serveStatic(req, res, pathname))) { res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('האתר בבנייה - יש להריץ npm run build'); }
     return;
   }
   try {

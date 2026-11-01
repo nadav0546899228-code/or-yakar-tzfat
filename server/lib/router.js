@@ -1,5 +1,9 @@
 // נתב HTTP קטן ללא תלויות - מחליף את Express כדי שבשרת Replit לא יידרש שום build
 import { URL } from 'node:url';
+import zlib from 'node:zlib';
+
+// דחיסת תשובות JSON גדולות (רשימות, דוחות) - חוסך הרבה זמן טעינה בטלפון
+function acceptsGzip(req) { return /\bgzip\b/.test(String(req.headers['accept-encoding'] || '')); }
 
 export class HttpError extends Error {
   constructor(status, message, extra) {
@@ -102,8 +106,16 @@ export function makeContext(req, res) {
     },
     json(status, data) {
       if (res.headersSent) return;
-      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...ctx.headersOut });
-      res.end(JSON.stringify(data));
+      const body = JSON.stringify(data);
+      const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', Vary: 'Accept-Encoding', ...ctx.headersOut };
+      if (body.length > 1400 && acceptsGzip(req)) {
+        const gz = zlib.gzipSync(body, { level: 6 });
+        res.writeHead(status, { ...headers, 'Content-Encoding': 'gzip', 'Content-Length': gz.length });
+        res.end(gz);
+        return;
+      }
+      res.writeHead(status, headers);
+      res.end(body);
     },
     send(status, body, type = 'text/plain; charset=utf-8', extraHeaders = {}) {
       if (res.headersSent) return;

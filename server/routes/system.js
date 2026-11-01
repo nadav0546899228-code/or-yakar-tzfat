@@ -31,11 +31,16 @@ function toCsv(rows, columns) {
 
 const SETTINGS_PERMS = { org: 'settings.org', theme: 'settings.org', site: 'settings.org', rates: 'settings.org', documents: 'settings.org' };
 
+// נתוני האתר הציבורי - משמשים גם להטמעה ישירה בדף (חוסך סבב טעינה)
+export async function publicSitePayload() {
+  const [org, theme, site] = await Promise.all([getSetting('org'), getSetting('theme'), getSetting('site')]);
+  return { org: rewriteDonationLinks(org), theme, site: rewriteDonationLinks(site), env: envInfo(), hebrewToday: toHebrew(new Date()).text };
+}
+
 export function registerSystemRoutes(r) {
   // ---------- ציבורי ----------
   r.get('/api/public/site', async (ctx) => {
-    const [org, theme, site] = await Promise.all([getSetting('org'), getSetting('theme'), getSetting('site')]);
-    ctx.json(200, { org: rewriteDonationLinks(org), theme, site: rewriteDonationLinks(site), env: envInfo(), hebrewToday: toHebrew(new Date()).text });
+    ctx.json(200, await publicSitePayload());
   });
 
   r.post('/api/public/contact', async (ctx) => {

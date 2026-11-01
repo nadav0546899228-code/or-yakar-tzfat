@@ -95,8 +95,8 @@ function Section({ s }) {
         </div>
       )}
       {s.audio && <div className="audio-list">{s.audio.map((a) => <div className="audio-item" key={a.url}><b>{a.title}</b><audio controls preload="none" src={a.url} /></div>)}</div>}
-      {s.videos && s.videos.length > 0 && <div className="gallery">{s.videos.map((v) => <iframe key={v} src={v} title="שיעור" style={{ width: '100%', aspectRatio: '16/9', border: 0, borderRadius: 12 }} allowFullScreen />)}</div>}
-      {s.gallery && !s.image && <div className="gallery" style={{ marginTop: 12 }}>{s.gallery.map((g) => <img key={g} src={g} alt={s.heading || ''} loading="lazy" />)}</div>}
+      {s.videos && s.videos.length > 0 && <div className="gallery">{s.videos.map((v) => <iframe key={v} src={v} title="שיעור" loading="lazy" style={{ width: '100%', aspectRatio: '16/9', border: 0, borderRadius: 12 }} allowFullScreen />)}</div>}
+      {s.gallery && !s.image && <div className="gallery" style={{ marginTop: 12 }}>{s.gallery.map((g) => <img key={g} src={g} alt={s.heading || ''} loading="lazy" decoding="async" />)}</div>}
       {s.link && <div style={{ marginTop: 14 }}><Link className="btn primary" to={s.link.path}>{s.link.label}</Link></div>}
     </div>
   );
