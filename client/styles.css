@@ -662,3 +662,73 @@ input[type="tel"], input[type="email"] { direction: ltr; text-align: right; }
 
 /* כותרת תאריך בטבלה (תצוגת מחשב) */
 .t tr.day-row td { position: sticky; top: 0; background: var(--sky, #eef3fb); color: var(--primary-dark, #0f2557); font-weight: 600; font-size: 13px; padding: 6px 12px; border-top: 1px solid var(--line); z-index: 1; }
+
+/* ===================== נגישות - האתר הציבורי (ת"י 5568 / WCAG 2.0 AA) ===================== */
+.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+/* דילוג לתוכן: מוסתר עד שמגיעים אליו במקלדת */
+.skip-link { position: absolute; top: -100px; right: 12px; z-index: 500; background: var(--primary-dark); color: #fff; padding: 10px 16px; border-radius: 0 0 10px 10px; font-weight: 700; }
+.skip-link:focus { top: 0; text-decoration: none; }
+#main-content:focus { outline: none; }
+/* סימון פוקוס ברור בניווט מקלדת */
+a:focus-visible, button:focus-visible, [role="button"]:focus-visible, summary:focus-visible, audio:focus-visible, iframe:focus-visible {
+  outline: 3px solid #e09b00; outline-offset: 2px; box-shadow: 0 0 0 5px rgba(255, 255, 255, .9);
+}
+.input:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+/* כפתור ותפריט הנגישות - פינה שמאלית תחתונה (הוואטסאפ בימנית) */
+.a11y-btn { position: fixed; left: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 70; width: 44px; height: 44px; border-radius: 50%; border: 2px solid #fff; background: #0b4ea2; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, .3); padding: 0; }
+.a11y-btn:hover { background: #083b7a; }
+.a11y-panel { position: fixed; left: 12px; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 71; width: 270px; max-width: calc(100vw - 24px); max-height: calc(100vh - 90px); overflow-y: auto; background: #fff; color: #14213d; border: 1px solid #c3cad8; border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, .3); padding: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; zoom: 1 !important; }
+.a11y-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.a11y-x { background: none; border: 0; font-size: 24px; line-height: 1; cursor: pointer; color: #14213d; width: 34px; height: 34px; border-radius: 8px; }
+.a11y-size { display: flex; align-items: center; justify-content: space-between; gap: 6px; background: #f1f4fa; border-radius: 10px; padding: 6px; }
+.a11y-size span { font-size: 13.5px; }
+.a11y-size button { min-width: 44px; min-height: 38px; border: 1px solid #c3cad8; background: #fff; border-radius: 8px; font-weight: 700; cursor: pointer; color: #14213d; }
+.a11y-size button:disabled { opacity: .45; cursor: default; }
+.a11y-opt { display: flex; align-items: center; gap: 10px; width: 100%; text-align: right; min-height: 40px; padding: 6px 10px; border: 1px solid #dfe4ee; background: #fff; border-radius: 10px; cursor: pointer; color: #14213d; }
+.a11y-opt[aria-pressed="true"] { background: #e3edfb; border-color: #0b4ea2; font-weight: 600; }
+.a11y-check { width: 20px; height: 20px; border: 2px solid #0b4ea2; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; color: #0b4ea2; flex: none; }
+.a11y-reset { justify-content: center; background: #f6f7fa; }
+.a11y-link { text-align: center; padding: 6px; font-size: 14px; text-decoration: underline; color: #0b4ea2; }
+@media print { .a11y, .skip-link, .wa-float { display: none !important; } }
+
+/* הגדלת טקסט: שלוש דרגות (zoom - כי רוב הגדלים באתר בפיקסלים) */
+.a11y-text-1 .site-header, .a11y-text-1 main, .a11y-text-1 .cta-band, .a11y-text-1 .site-footer { zoom: 1.12; }
+.a11y-text-2 .site-header, .a11y-text-2 main, .a11y-text-2 .cta-band, .a11y-text-2 .site-footer { zoom: 1.25; }
+.a11y-text-3 .site-header, .a11y-text-3 main, .a11y-text-3 .cta-band, .a11y-text-3 .site-footer { zoom: 1.4; }
+
+/* ניגודיות גבוהה: רקע שחור, טקסט לבן, קישורים צהובים */
+html.a11y-contrast body { background: #000 !important; }
+.a11y-contrast #root *:not(img):not(svg):not(path):not(iframe):not(video):not(audio) { background-color: #000 !important; background-image: none !important; color: #fff !important; border-color: #fff !important; text-shadow: none !important; box-shadow: none !important; }
+.a11y-contrast #root a, .a11y-contrast #root a * { color: #ffeb3b !important; }
+.a11y-contrast #root .btn, .a11y-contrast #root button { border: 2px solid #ffeb3b !important; }
+.a11y-contrast .hero::after { display: none; }
+.a11y-contrast .site-footer .logo-box, .a11y-contrast .site-logo img { background: #fff !important; }
+.a11y-contrast .a11y-opt[aria-pressed="true"] { outline: 2px solid #ffeb3b; }
+
+/* גווני אפור - כל האתר מלבד תפריט הנגישות */
+.a11y-gray #root > *:not(.a11y) { filter: grayscale(1); }
+
+/* הדגשת קישורים */
+.a11y-links #root a { text-decoration: underline !important; text-decoration-thickness: 2px !important; text-underline-offset: 3px; }
+.a11y-links #root a:not(.btn):not(.wa-float):not(.site-logo) { background-color: rgba(255, 235, 59, .35); }
+.a11y-contrast.a11y-links #root a:not(.btn) { background-color: #000 !important; }
+
+/* גופן קריא */
+.a11y-font #root, .a11y-font #root *:not(svg):not(path) { font-family: Arial, 'Assistant', 'Heebo', sans-serif !important; letter-spacing: .01em; word-spacing: .06em; }
+.a11y-font #root p, .a11y-font #root li { line-height: 1.8 !important; }
+
+/* עצירת אנימציות */
+.a11y-still *, .a11y-still *::before, .a11y-still *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+
+/* הצהרת נגישות */
+.a11y-statement { max-width: 860px; }
+.a11y-statement h2 { font-size: 22px; margin-top: 26px; }
+.a11y-statement ul { padding-inline-start: 22px; margin: 0 0 12px; }
+.a11y-statement li { margin-bottom: 6px; }
+.a11y-contact dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.a11y-contact dt { font-weight: 600; color: var(--muted); }
+.a11y-contact dd { margin: 0; }

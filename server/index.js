@@ -19,6 +19,8 @@ import { registerExtraRoutes } from './routes/extra.js';
 import { registerCommunityRoutes } from './routes/community.js';
 import { registerNedarimRoutes, ensureRefundPolicy } from './routes/nedarim.js';
 import { registerMonthlyRoutes, sweepInterruptedBatches } from './routes/monthly.js';
+import { registerAiRoutes } from './routes/ai.js';
+import { registerMediaRoutes, ensureMediaImported } from './routes/media.js';
 import { ensureDefaults } from './settings.js';
 import { runDailyAutomations } from './automations.js';
 import { envInfo, isPublished } from './env.js';
@@ -121,6 +123,8 @@ registerExtraRoutes(router);
 registerCommunityRoutes(router);
 registerNedarimRoutes(router);
 registerMonthlyRoutes(router);
+registerAiRoutes(router);
+registerMediaRoutes(router);
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
 // בדיקת מצב ציבורית (בלי נתונים רגישים): גרסה, בנייה וסטטוס מסד - כדי לוודא מבחוץ שעדכון נקלט
 const SERVER_VERSION = 'precision-v3';
@@ -342,6 +346,7 @@ async function start() {
       dbReady = true;
       dbError = null;
       console.log('[db] המסד מוכן');
+      ensureMediaImported(); // העתקת תמונות האתר הישן לאתר שלנו (ברקע, פעם אחת)
     } catch (e) {
       dbError = e.message;
       console.error(`[db] ניסיון ${attempt} נכשל:`, e.message);

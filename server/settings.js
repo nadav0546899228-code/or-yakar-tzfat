@@ -32,6 +32,14 @@ export const DEFAULTS = {
   rates: { USD: 3.7, EUR: 4.0, GBP: 4.7 },
   documents: { default_provider: 'greeninvoice', auto_issue_on_paid: false, large_donation_threshold: 5000 },
   site: {
+    // הצהרת הנגישות (/accessibility): רכז הנגישות ותאריך עדכון. שדה ריק = נלקח מפרטי העמותה (טלפון ראשון ומייל)
+    accessibility: {
+      coordinator_name: '',
+      coordinator_phone: '',
+      coordinator_email: '',
+      statement_date: '2026-11-01',
+      extra_notes: '',
+    },
     nav: [
       { path: '/story', label: 'סיפור הקהילה' },
       { path: '/rabbi', label: 'מורנו ראש הישיבה שליט"א' },
