@@ -642,3 +642,23 @@ td.num, th.num { text-align: right; }
 button[aria-busy="true"] { opacity: .6; cursor: progress; }
 /* טלפון ומייל נכתבים משמאל לימין, ומיושרים לימין כמו שאר הטופס */
 input[type="tel"], input[type="email"] { direction: ltr; text-align: right; }
+
+/* בחירה עם חיפוש */
+.ac .ac-caret { position: absolute; inset-inline-end: 10px; top: 50%; transform: translateY(-50%); color: #8a93a8; pointer-events: none; font-size: 12px; }
+.ac:has(.ac-caret) > .input { padding-inline-end: 28px; }
+.ac-list div.cur { font-weight: 600; }
+.ac-list div.muted { color: var(--muted, #6b7280); }
+/* שדה חובה שחסר */
+.field.has-error .input { border-color: var(--bad); box-shadow: 0 0 0 3px rgba(197, 48, 48, .12); }
+.field-error { color: var(--bad); font-size: 13px; }
+/* יעדי לחיצה נוחים בטלפון */
+@media (max-width: 900px) {
+  .btn { min-height: 40px; }
+  .btn.sm { min-height: 36px; padding-inline: 12px; }
+  .btn.icon { min-width: 40px; }
+  .quick-sel { min-height: 34px; }
+  .bottom-nav a { min-height: 52px; }
+}
+
+/* כותרת תאריך בטבלה (תצוגת מחשב) */
+.t tr.day-row td { position: sticky; top: 0; background: var(--sky, #eef3fb); color: var(--primary-dark, #0f2557); font-weight: 600; font-size: 13px; padding: 6px 12px; border-top: 1px solid var(--line); z-index: 1; }

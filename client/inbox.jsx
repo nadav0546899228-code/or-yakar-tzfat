@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, useApi, run, toast, Modal, Field, Spinner, navigate, datetime, useDebounced } from './lib.jsx';
 import { Icon } from './icons.jsx';
+import { dayLabel } from './crm.jsx';
+
+const IL = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' });
+const ilDay = (v) => (v ? IL.format(new Date(v)) : '');
 
 // ---------- הודעות פנימיות בין אנשי הצוות ----------
 export function InboxPage() {
@@ -34,15 +38,18 @@ export function InboxPage() {
       </div>
       {!data ? <Spinner /> : (
         <div className="msg-list">
-          {rows.map((m) => (
-            <div key={m.id} className={`msg-row ${box === 'in' && !m.read_at ? 'unread' : ''} ${sel.includes(m.id) ? 'sel' : ''}`} onClick={() => openMsg(m)}>
+          {rows.map((m, idx) => (
+            <React.Fragment key={m.id}>
+            {(idx === 0 || ilDay(rows[idx - 1].at) !== ilDay(m.at)) && <div className="day-head">{dayLabel(ilDay(m.at))}</div>}
+            <div className={`msg-row ${box === 'in' && !m.read_at ? 'unread' : ''} ${sel.includes(m.id) ? 'sel' : ''}`} onClick={() => openMsg(m)}>
               <input type="checkbox" checked={sel.includes(m.id)} onClick={(e) => e.stopPropagation()} onChange={(e) => setSel(e.target.checked ? [...sel, m.id] : sel.filter((x) => x !== m.id))} aria-label="בחירה" />
               <span className="msg-av">{((box === 'in' ? m.from_name : m.to_name) || '?').slice(0, 1)}</span>
               <span className="msg-main">
-                <span className="row between"><b>{box === 'in' ? m.from_name || 'מערכת' : `אל: ${m.to_name}`}</b><span className="small muted">{datetime(m.at)}</span></span>
+                <span className="row between"><b>{box === 'in' ? m.from_name || 'מערכת' : `אל: ${m.to_name}`}</b><span className="small muted">{new Date(m.at).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jerusalem' })}</span></span>
                 <span className="small">{m.subject ? <b>{m.subject} · </b> : null}{String(m.body).slice(0, 110)}</span>
               </span>
             </div>
+            </React.Fragment>
           ))}
           {!rows.length && <div className="empty">{box === 'in' ? 'אין הודעות נכנסות' : 'עוד לא נשלחו הודעות'}</div>}
         </div>

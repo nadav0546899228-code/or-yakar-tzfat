@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import {
-  api, useApi, toast, run, Modal, Field, RefPicker, UserPicker, Confirm, Spinner, ErrorBox, Tag, Link, navigate, useRoute,
+  api, useApi, toast, run, Modal, Field, RefPicker, UserPicker, Combo, hebDayMonth, Pager, Confirm, Spinner, ErrorBox, Tag, Link, navigate, useRoute,
   money, date, datetime, today, qs, download, useDebounced, AppCtx, phoneHref, waHref, SignaturePad, confirmDialog } from './lib.jsx';
 import { SOURCE_LABELS, TX_STATUS, SO_STATUS, TAX_STATUS, DOC_TYPES, KIND_LABELS, METHOD_LABELS, CALL_REASON, DATE_KIND } from './labels.js';
 import { can } from './app.jsx';
@@ -42,12 +42,17 @@ export function FieldInput({ f, value, onChange, meta }) {
     case 'money': return <input className="input num" type="number" step="0.01" min="0" value={value ?? ''} onChange={(e) => onChange(e.target.value)} />;
     case 'date': return <input className="input" type="date" value={value ? String(value).slice(0, 10) : ''} onChange={(e) => onChange(e.target.value)} />;
     case 'bool': return <label className="check"><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />{f.label}</label>;
-    case 'select': return (
-      <select className="input" value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
-        <option value="">—</option>
-        {(meta.options[f.options] || []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    );
+    case 'select': {
+      const opts = meta.options[f.options] || [];
+      // רשימה ארוכה - עם חיפוש; רשימה קצרה (סטטוס, סוג) נשארת רשימה רגילה שנוחה בטלפון
+      if (opts.length > 7) return <Combo options={opts} value={value ?? ''} onChange={onChange} emptyLabel="—" />;
+      return (
+        <select className="input" value={value ?? ''} onChange={(e) => onChange(e.target.value)}>
+          <option value="">—</option>
+          {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      );
+    }
     case 'ref': return <RefPicker res={f.ref} value={value} onChange={onChange} />;
     case 'user': return <UserPicker value={value} onChange={onChange} />;
     case 'tags': return <input className="input" placeholder="מופרדות בפסיק" value={Array.isArray(value) ? value.join(', ') : value ?? ''} onChange={(e) => onChange(e.target.value)} />;
@@ -78,13 +83,27 @@ export function ResourceForm({ resKey, row, preset = {}, onClose, onSaved }) {
   const [adv, setAdv] = useState(!!row);
   const [busy, setBusy] = useState(false);
   const [del, setDel] = useState(false);
+  const [errors, setErrors] = useState({});
+  const initial = React.useRef(JSON.stringify(form));
+  const dirty = JSON.stringify(form) !== initial.current;
   const hasAdv = def.fields.some((f) => f.advanced);
   const save = async (force) => {
+    if (busy) return;
+    // שדות חובה נבדקים לפני השליחה, עם סימון על השדה עצמו
+    const missing = {};
+    def.fields.forEach((f) => { if (f.required && (form[f.key] === undefined || form[f.key] === null || String(form[f.key]).trim() === '')) missing[f.key] = 'שדה חובה'; });
+    setErrors(missing);
+    if (Object.keys(missing).length) {
+      if (def.fields.some((f) => missing[f.key] && f.advanced)) setAdv(true);
+      toast(`חסר: ${def.fields.filter((f) => missing[f.key]).map((f) => f.label).join(', ')}`, 'error');
+      return;
+    }
     setBusy(true);
     try {
       const body = { ...form, force };
       const r = row ? await api(`/r/${resKey}/${row.id}`, { method: 'PUT', body }) : await api(`/r/${resKey}`, { method: 'POST', body });
       toast('נשמר', 'ok');
+      initial.current = JSON.stringify(form);
       onSaved?.(r.row);
     } catch (e) {
       if (e.status === 409 && e.data?.duplicate) {
@@ -96,7 +115,7 @@ export function ResourceForm({ resKey, row, preset = {}, onClose, onSaved }) {
   };
   const fields = def.fields.filter((f) => !f.advanced || adv);
   return (
-    <Modal title={`${row ? 'עריכת' : 'הוספת'} ${def.one}`} onClose={onClose} footer={<>
+    <Modal title={`${row ? 'עריכת' : 'הוספת'} ${def.one}`} onClose={onClose} dirty={dirty && !busy} onSubmit={() => save(false)} footer={<>
       <button className="btn primary" disabled={busy || def.readonly} onClick={() => save(false)}>שמירה</button>
       <button className="btn" onClick={onClose}>ביטול</button>
       <div className="grow" />
@@ -105,8 +124,8 @@ export function ResourceForm({ resKey, row, preset = {}, onClose, onSaved }) {
       <div className="form-grid">
         {fields.map((f) => (
           f.type === 'bool' ? <div key={f.key} className="field" style={{ justifyContent: 'flex-end' }}><FieldInput f={f} meta={meta} value={form[f.key]} onChange={(v) => setForm({ ...form, [f.key]: v })} /></div>
-            : <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}`} full={['textarea', 'json'].includes(f.type)}>
-              <FieldInput f={f} meta={meta} value={form[f.key]} onChange={(v, name) => setForm({ ...form, [f.key]: v, ...(name ? { file_name: name } : {}) })} />
+            : <Field key={f.key} label={`${f.label}${f.required ? ' *' : ''}`} full={['textarea', 'json'].includes(f.type)} error={errors[f.key]}>
+              <FieldInput f={f} meta={meta} value={form[f.key]} onChange={(v, name) => { setForm({ ...form, [f.key]: v, ...(name ? { file_name: name } : {}) }); if (errors[f.key]) setErrors({ ...errors, [f.key]: undefined }); }} />
             </Field>
         ))}
       </div>
@@ -363,8 +382,10 @@ export function NewDonation({ donorId, preset = {}, onClose, onDone }) {
   const [f, setF] = useState({ donor_id: donorId || null, method: 'cash', amount: '', currency: 'ILS', date: today(), issue_document: true, document_type: 'receipt46', ...preset });
   const [mode, setMode] = useState('record');
   const [busy, setBusy] = useState(false);
+  const initial = React.useRef(JSON.stringify(f));
   const set = (k) => (v) => setF((x) => ({ ...x, [k]: v?.target ? v.target.value : v }));
   const submit = async () => {
+    if (busy || !f.donor_id || !f.amount) return;
     setBusy(true);
     try {
       if (mode === 'record') {
@@ -378,7 +399,7 @@ export function NewDonation({ donorId, preset = {}, onClose, onDone }) {
     } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
   return (
-    <Modal title="תרומה חדשה" onClose={onClose} footer={<><button className="btn primary" disabled={busy || !f.donor_id || !f.amount} onClick={submit}>{mode === 'record' ? 'רישום' : mode === 'keva' ? 'הקמת הו"ק באשראי' : 'חיוב'}</button><button className="btn" onClick={onClose}>ביטול</button></>}>
+    <Modal title="תרומה חדשה" onClose={onClose} dirty={!busy && JSON.stringify(f) !== initial.current} onSubmit={submit} footer={<><button className="btn primary" disabled={busy || !f.donor_id || !f.amount} onClick={submit}>{mode === 'record' ? 'רישום' : mode === 'keva' ? 'הקמת הו"ק באשראי' : 'חיוב'}</button><button className="btn" onClick={onClose}>ביטול</button></>}>
       <div className="tabs">
         <button className={mode === 'record' ? 'on' : ''} onClick={() => setMode('record')}>רישום (מזומן / צ׳ק / העברה)</button>
         {can(user, 'tx.write') && <button className={mode === 'charge' ? 'on' : ''} onClick={() => setMode('charge')}>חיוב אשראי</button>}
@@ -505,7 +526,7 @@ export function DonorCard({ params }) {
             {!data.tasks.some((t) => !['done', 'cancelled'].includes(t.status)) && <div className="muted small">אין</div>}
           </div>
           <div className="card"><div className="row between"><h3>תאריכים קרובים</h3><button className="btn sm" onClick={() => setModal({ type: 'res', res: 'donor_dates', preset: { donor_id: d.id } })}>+ תאריך</button></div>
-            {data.dates.map((x) => <div key={x.id} className="small" style={{ padding: '3px 0' }}>{DATE_KIND[x.kind]}: {x.person_name} · {x.hebrew_day} {meta.options.hebMonth.find((m) => m.value === x.hebrew_month)?.label}</div>)}
+            {data.dates.map((x) => <div key={x.id} className="small" style={{ padding: '3px 0' }}>{DATE_KIND[x.kind]}: {x.person_name} · {hebDayMonth(x.hebrew_day, meta.options.hebMonth.find((m) => m.value === x.hebrew_month)?.label)}</div>)}
             {!data.dates.length && <div className="muted small">אין</div>}
           </div>
         </div>
@@ -523,7 +544,7 @@ export function DonorCard({ params }) {
       {tab === 'dates' && (
         <div className="card"><div className="row between"><h3>תאריכים עבריים</h3><button className="btn sm primary" onClick={() => setModal({ type: 'res', res: 'donor_dates', preset: { donor_id: d.id } })}>+ תאריך</button></div>
           <div className="table-wrap"><table className="t"><thead><tr><th>סוג</th><th>שם</th><th>קרבה</th><th>תאריך עברי</th><th>התראה</th></tr></thead><tbody>
-            {data.dates.map((x) => <tr key={x.id} className="click" onClick={() => setModal({ type: 'res', res: 'donor_dates', row: x })}><td>{DATE_KIND[x.kind]}</td><td>{x.person_name}</td><td>{x.relation}</td><td>{x.hebrew_day} {meta.options.hebMonth.find((m) => m.value === x.hebrew_month)?.label}</td><td>{x.notify ? '✓' : ''}</td></tr>)}
+            {data.dates.map((x) => <tr key={x.id} className="click" onClick={() => setModal({ type: 'res', res: 'donor_dates', row: x })}><td>{DATE_KIND[x.kind]}</td><td>{x.person_name}</td><td>{x.relation}</td><td>{hebDayMonth(x.hebrew_day, meta.options.hebMonth.find((m) => m.value === x.hebrew_month)?.label)}</td><td>{x.notify ? '✓' : ''}</td></tr>)}
           </tbody></table></div>
         </div>
       )}
@@ -630,13 +651,16 @@ function txTone(t) {
 // כותרות תאריך בסגנון וואטסאפ: היום, אתמול, שם היום עד שבוע, ואחר כך תאריך
 export function dayLabel(v) {
   if (!v) return '';
-  const d = new Date(String(v).slice(0, 10) + 'T00:00:00');
-  const t = new Date(); t.setHours(0, 0, 0, 0);
+  // ההפרש בימים מחושב בין חצות UTC של שני התאריכים - בלי סטייה במעבר שעון, ו"היום" לפי שעון ישראל
+  const day = String(v).slice(0, 10);
+  const d = new Date(`${day}T00:00:00Z`);
+  const t = new Date(`${today()}T00:00:00Z`);
   const diff = Math.round((t - d) / 86400000);
   if (diff === 0) return 'היום';
   if (diff === 1) return 'אתמול';
-  if (diff > 1 && diff < 7) return `יום ${d.toLocaleDateString('he-IL', { weekday: 'long' }).replace('יום ', '')}`;
-  return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: d.getFullYear() !== t.getFullYear() ? 'numeric' : undefined });
+  if (diff === -1) return 'מחר';
+  if (diff > 1 && diff < 7) return `יום ${d.toLocaleDateString('he-IL', { weekday: 'long', timeZone: 'UTC' }).replace('יום ', '')}`;
+  return d.toLocaleDateString('he-IL', { day: 'numeric', month: 'long', timeZone: 'UTC', year: d.getUTCFullYear() !== t.getUTCFullYear() ? 'numeric' : undefined });
 }
 
 function TxList({ rows, hideDonor, onOpen, onChange }) {
@@ -676,8 +700,12 @@ export function TxTable({ rows, onChange, hideDonor, selectable, selected, setSe
       <table className="t">
         <thead><tr>{selectable && <th />}<th>תאריך</th>{!hideDonor && <th>תורם</th>}<th>סכום</th><th>מקור</th><th>סוג</th><th>מוסד</th><th>סטטוס</th><th>קבלה</th><th /></tr></thead>
         <tbody>
-          {rows.map((t) => (
-            <tr key={t.id} className={`click ${txTone(t)} ${selected?.includes(t.id) ? 'sel' : ''}`} onClick={() => setOpen(t)}>
+          {rows.map((t, idx) => (
+            <React.Fragment key={t.id}>
+            {(idx === 0 || String(rows[idx - 1].date).slice(0, 10) !== String(t.date).slice(0, 10)) && (
+              <tr className="day-row"><td colSpan={10}>{dayLabel(t.date)}</td></tr>
+            )}
+            <tr className={`click ${txTone(t)} ${selected?.includes(t.id) ? 'sel' : ''}`} onClick={() => setOpen(t)}>
               {selectable && <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.includes(t.id)} onChange={(e) => setSelected(e.target.checked ? [...selected, t.id] : selected.filter((x) => x !== t.id))} /></td>}
               <td className="nowrap">{date(t.date)}</td>
               {!hideDonor && <td>{t.donor_id ? <Link to={`/app/donors/${t.donor_id}`} onClick={(e) => e.stopPropagation()}>{t.donor_name}</Link> : '-'}{t.is_demo && <> <Tag kind="demo">דוגמה</Tag></>}</td>}
@@ -689,6 +717,7 @@ export function TxTable({ rows, onChange, hideDonor, selectable, selected, setSe
               <td className="small">{t.document_number || t.document_id ? <span>{t.document_number}{t.tax_report_status && <> <Tag kind={(TAX_STATUS[t.tax_report_status] || [])[1]}>{(TAX_STATUS[t.tax_report_status] || [])[0]}</Tag></>}</span> : <span className="muted">—</span>}</td>
               <td><TxActions t={t} onChange={onChange} /></td>
             </tr>
+            </React.Fragment>
           ))}
           {!rows.length && <tr><td colSpan={10} className="empty">אין תנועות</td></tr>}
         </tbody>
@@ -842,7 +871,10 @@ export function KevaPage() {
   const { demoMode, user } = useContext(AppCtx);
   const [f, setF] = useState({ q: '', status: '', source: '', type: '', churn: query.churn || '', ending: '' });
   const dq = useDebounced(f.q);
-  const { data, reload, loading } = useApi(`/keva${qs({ ...f, q: dq, demo: demoMode })}`);
+  const [offset, setOffset] = useState(0);
+  const fkey = JSON.stringify({ ...f, q: dq, demoMode });
+  useEffect(() => { setOffset(0); }, [fkey]);
+  const { data, reload, loading } = useApi(`/keva${qs({ ...f, q: dq, demo: demoMode, offset: offset || undefined })}`);
   const [add, setAdd] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
   return (
@@ -859,11 +891,12 @@ export function KevaPage() {
       <div className="toolbar">
         <input className="input search" placeholder="חיפוש תורם / טלפון" value={f.q} onChange={set('q')} />
         <select className="input" value={f.status} onChange={set('status')}><option value="">כל הסטטוסים</option>{Object.entries(SO_STATUS).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}</select>
-        <select className="input" value={f.source} onChange={set('source')}><option value="">כל הספקים</option>{['nedarim', 'jgive', 'kehilot', 'masav', 'cardcom', 'tranzila', 'grow', 'payplus', 'manual'].map((s) => <option key={s} value={s}>{SOURCE_LABELS[s]}</option>)}</select>
+        <Combo style={{ minWidth: 170 }} options={['nedarim', 'jgive', 'kehilot', 'masav', 'cardcom', 'tranzila', 'grow', 'payplus', 'manual'].map((x) => ({ value: x, label: SOURCE_LABELS[x] || x }))} value={f.source} onChange={set('source')} placeholder="כל הספקים" emptyLabel="כל הספקים" />
         <select className="input" value={f.type} onChange={set('type')}><option value="">אשראי + בנק</option><option value="credit">אשראי</option><option value="bank">בנקאית</option></select>
         <label className="check small"><input type="checkbox" checked={f.churn === 'true'} onChange={(e) => set('churn')(e.target.checked ? 'true' : '')} />נטישה (90 יום)</label>
         <label className="check small"><input type="checkbox" checked={f.ending === 'true'} onChange={(e) => set('ending')(e.target.checked ? 'true' : '')} />מסתיימות בקרוב</label>
       </div>
+      {data && <Pager total={data.total} offset={offset} count={data.rows.length} onChange={setOffset} />}
       {loading && !data ? <Spinner /> : <KevaTable rows={data?.rows || []} onChange={reload} />}
       {add && <NewKeva onClose={() => setAdd(false)} onDone={() => { setAdd(false); reload(); }} />}
     </div>
@@ -873,8 +906,15 @@ export function KevaPage() {
 export function NewKeva({ donorId, onClose, onDone, field }) {
   const [f, setF] = useState({ donor_id: donorId || null, type: 'bank', amount: '', day_of_month: 10, bank_code: '', branch_code: '', account_number: '', start_date: today() });
   const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
+  const initial = React.useRef(JSON.stringify(f));
+  const [busy, setBusy] = useState(false);
+  const save = () => {
+    if (busy || !f.donor_id || !f.amount || !f.account_number) return;
+    setBusy(true);
+    run(() => api('/keva', { method: 'POST', body: f }), 'הו"ק נרשמה').then(() => { initial.current = JSON.stringify(f); onDone?.(); }).catch(() => {}).finally(() => setBusy(false));
+  };
   return (
-    <Modal title="הוראת קבע בנקאית חדשה" onClose={onClose} footer={<><button className="btn primary" disabled={!f.donor_id || !f.amount || !f.account_number} onClick={() => run(() => api('/keva', { method: 'POST', body: f }), 'הו"ק נרשמה').then(onDone)}>שמירה</button><button className="btn" onClick={onClose}>ביטול</button></>}>
+    <Modal title="הוראת קבע בנקאית חדשה" onClose={onClose} dirty={!busy && JSON.stringify(f) !== initial.current} onSubmit={save} footer={<><button className="btn primary" disabled={busy || !f.donor_id || !f.amount || !f.account_number} onClick={save}>שמירה</button><button className="btn" onClick={onClose}>ביטול</button></>}>
       <div className="form-grid">
         {!donorId && <Field label="תורם *" full><RefPicker res="donors" value={f.donor_id} onChange={set('donor_id')} /></Field>}
         <Field label="סכום חודשי *" full>
@@ -953,7 +993,10 @@ export function DocumentsPage() {
   const { demoMode } = useContext(AppCtx);
   const [f, setF] = useState({ q: '', type: '', tax_report_status: query.tax_report_status || '', status: '', from: '', to: '' });
   const dq = useDebounced(f.q);
-  const { data, reload } = useApi(`/documents${qs({ ...f, q: dq, demo: demoMode })}`);
+  const [offset, setOffset] = useState(0);
+  const fkey = JSON.stringify({ ...f, q: dq, demoMode });
+  useEffect(() => { setOffset(0); }, [fkey]);
+  const { data, reload } = useApi(`/documents${qs({ ...f, q: dq, demo: demoMode, offset: offset || undefined })}`);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <div>
@@ -966,6 +1009,7 @@ export function DocumentsPage() {
         <select className="input" value={f.status} onChange={set('status')}><option value="">בתוקף + בוטלו</option><option value="active">בתוקף</option><option value="cancelled">בוטלו</option></select>
         <input className="input" type="date" value={f.from} onChange={set('from')} /><input className="input" type="date" value={f.to} onChange={set('to')} />
       </div>
+      {data && <Pager total={data.total} offset={offset} count={data.rows.length} onChange={setOffset} />}
       {data ? <DocsTable rows={data.rows} onChange={reload} /> : <Spinner />}
     </div>
   );

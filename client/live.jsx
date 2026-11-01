@@ -1,34 +1,66 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { api, navigate } from './lib.jsx';
+import { api, navigate, requestRefresh } from './lib.jsx';
 import { Icon } from './icons.jsx';
 
-// עדכון חי: בודק כל 15 שניות אם משהו השתנה במערכת. אם כן - המסכים הפתוחים מתרעננים בשקט,
-// והתראות חדשות קופצות בפינת המסך
+// עדכון חי: השרת דוחף הודעה ברגע שמשהו משתנה (חיבור קבוע). אם החיבור נופל - בדיקה כל 15 שניות כגיבוי.
+// המסכים מתרעננים בשקט, בלי לדרוס טופס פתוח, והתראות חדשות קופצות בפינת המסך
 export function LiveUpdates() {
   const ver = useRef(null);
   const last = useRef(0);
   const [pops, setPops] = useState([]);
   useEffect(() => {
     let alive = true;
+    let es = null;
+    let streamOk = false;
+    let retry = 5000;
+    let retryTimer = null;
+    let lastCheck = 0;
     const check = async () => {
       if (document.visibilityState !== 'visible') return;
+      lastCheck = Date.now();
       try {
         const r = await api(`/live?since=${last.current || 0}`);
         if (!alive) return;
-        if (ver.current !== null && r.v !== ver.current) window.dispatchEvent(new Event('oy:refresh'));
+        if (ver.current !== null && r.v !== ver.current) requestRefresh();
         ver.current = r.v;
         if (last.current && r.notifs?.length) {
           setPops((p) => [...r.notifs.map((n) => ({ ...n, key: `${n.id}` })), ...p].slice(0, 3));
-          window.dispatchEvent(new Event('oy:refresh'));
+          requestRefresh();
         }
         last.current = Math.max(last.current || 0, r.last || 0, ...(r.notifs || []).map((n) => n.id));
       } catch { /* בפעם הבאה */ }
     };
+    const connect = () => {
+      if (!alive || typeof EventSource === 'undefined') return;
+      try { es = new EventSource('/api/live/stream'); } catch { return; }
+      es.onopen = () => { streamOk = true; retry = 5000; };
+      es.onmessage = (e) => {
+        let d = null;
+        try { d = JSON.parse(e.data); } catch { return; }
+        // שינוי בגרסת הנתונים או התראה חדשה - מושכים את הפרטים פעם אחת
+        if ((ver.current !== null && d.v !== ver.current) || (d.last && d.last > (last.current || 0))) check();
+      };
+      es.onerror = () => {
+        streamOk = false;
+        try { es.close(); } catch { /* */ }
+        es = null;
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(connect, retry);
+        retry = Math.min(retry * 2, 30000);
+      };
+    };
     check();
-    const t = setInterval(check, 15000);
-    const onVis = () => document.visibilityState === 'visible' && check();
+    connect();
+    // גיבוי: כשהחיבור הקבוע לא פעיל - כל 15 שניות; כשהוא פעיל - פעם בדקה ליתר ביטחון
+    const t = setInterval(() => { if (!streamOk || Date.now() - lastCheck > 60000) check(); }, 15000);
+    const onVis = () => { if (document.visibilityState === 'visible' && Date.now() - lastCheck > 10000) check(); };
     document.addEventListener('visibilitychange', onVis);
-    return () => { alive = false; clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+    window.addEventListener('online', onVis);
+    return () => {
+      alive = false; clearInterval(t); clearTimeout(retryTimer);
+      try { es?.close(); } catch { /* */ }
+      document.removeEventListener('visibilitychange', onVis); window.removeEventListener('online', onVis);
+    };
   }, []);
   useEffect(() => {
     if (!pops.length) return undefined;

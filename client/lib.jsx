@@ -197,27 +197,72 @@ export function waHref(p, text = '') {
 }
 
 // ---------- רכיבים ----------
+// ---------- רענון חכם ושינויים שלא נשמרו ----------
+// עדכון חי לא מרענן מסך כשחלון עריכה פתוח או כשיש שינויים שלא נשמרו - הרענון מחכה לסגירה (כמו בנוסעים בן טובים)
+const dirtySet = new Set();
+let refreshPending = false;
+export function requestRefresh() {
+  if (modalStack.length || dirtySet.size) { refreshPending = true; return; }
+  window.dispatchEvent(new Event('oy:refresh'));
+}
+function flushRefresh() {
+  if (refreshPending && !modalStack.length && !dirtySet.size) {
+    refreshPending = false;
+    setTimeout(() => window.dispatchEvent(new Event('oy:refresh')), 60);
+  }
+}
+export function hasUnsaved() { return dirtySet.size > 0; }
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', (e) => { if (dirtySet.size) { e.preventDefault(); e.returnValue = ''; } });
+}
+/** מסמן שיש בטופס שינויים שלא נשמרו: אזהרה ביציאה מהדף, ועדכון חי לא דורס את מה שהוקלד */
+export function useUnsaved(dirty) {
+  const token = useRef({});
+  useEffect(() => {
+    const t = token.current;
+    if (dirty) dirtySet.add(t); else { dirtySet.delete(t); flushRefresh(); }
+    return () => { dirtySet.delete(t); flushRefresh(); };
+  }, [dirty]);
+}
+
 // מחסנית חלונות: Escape סוגר רק את החלון העליון (ולא גם את הטופס שמתחתיו עם כל מה שהוקלד)
 const modalStack = [];
-export function Modal({ title, onClose, children, footer, size = '' }) {
+export function Modal({ title, onClose, children, footer, size = '', dirty = false, onSubmit }) {
   const me = useRef({});
   const closeRef = useRef(onClose);
+  const dirtyRef = useRef(dirty);
   closeRef.current = onClose;
+  dirtyRef.current = dirty;
+  useUnsaved(dirty);
+  // סגירה עם שינויים שלא נשמרו - שואלים קודם (X, Escape או לחיצה מחוץ לחלון)
+  const tryClose = async () => {
+    if (!closeRef.current) return;
+    if (dirtyRef.current && !(await confirmDialog('יש שינויים שלא נשמרו. לצאת בלי לשמור?', { ok: 'יציאה בלי שמירה', cancel: 'המשך עריכה', danger: true }))) return;
+    closeRef.current();
+  };
   useEffect(() => {
     const token = me.current;
     modalStack.push(token);
     const on = (e) => {
       if (e.key !== 'Escape' || modalStack[modalStack.length - 1] !== token) return;
       if (document.querySelector('.confirm-bg')) return;
-      closeRef.current?.();
+      tryClose();
     };
     window.addEventListener('keydown', on);
-    return () => { window.removeEventListener('keydown', on); const i = modalStack.indexOf(token); if (i > -1) modalStack.splice(i, 1); };
+    return () => { window.removeEventListener('keydown', on); const i = modalStack.indexOf(token); if (i > -1) modalStack.splice(i, 1); flushRefresh(); };
   }, []);
+  // Enter שומר (לא בתוך תיבת טקסט ארוכה, לא כשרשימת השלמה פתוחה ולא על כפתור)
+  const onKey = (e) => {
+    if (!onSubmit || e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    const t = e.target;
+    if (t.tagName === 'TEXTAREA' || t.tagName === 'BUTTON' || t.closest('.ac-open') || t.type === 'file') return;
+    e.preventDefault();
+    onSubmit();
+  };
   return (
-    <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className={`modal ${size}`} role="dialog" aria-modal="true">
-        <div className="modal-head"><h3>{title}</h3><button className="btn ghost icon" onClick={onClose} aria-label="סגירה">✕</button></div>
+    <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && tryClose()}>
+      <div className={`modal ${size}`} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} onKeyDown={onKey}>
+        <div className="modal-head"><h3>{title}</h3><button type="button" className="btn ghost icon" onClick={tryClose} aria-label="סגירה">✕</button></div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
@@ -225,8 +270,19 @@ export function Modal({ title, onClose, children, footer, size = '' }) {
   );
 }
 
-export function Field({ label, children, full, hint }) {
-  return <div className={`field ${full ? 'full' : ''}`}><label>{label}</label>{children}{hint && <span className="small muted">{hint}</span>}</div>;
+export function Field({ label, children, full, hint, error }) {
+  // התווית מקושרת לשדה: לחיצה עליה מפעילה את השדה, וקורא מסך מקריא אותה
+  const id = React.useId();
+  const only = React.Children.count(children) === 1 && React.isValidElement(children) && ['input', 'select', 'textarea'].includes(children.type) ? children : null;
+  const child = only && !only.props.id ? React.cloneElement(only, { id, 'aria-invalid': error ? true : undefined }) : children;
+  return (
+    <div className={`field ${full ? 'full' : ''} ${error ? 'has-error' : ''}`}>
+      <label htmlFor={only ? (only.props.id || id) : undefined}>{label}</label>
+      {child}
+      {error && <span className="field-error">{error}</span>}
+      {hint && <span className="small muted">{hint}</span>}
+    </div>
+  );
 }
 
 export function Spinner() { return <div className="empty">טוען…</div>; }
@@ -255,17 +311,18 @@ export function RefPicker({ res, value, onChange, placeholder = 'הקלידו ל
   };
   const pick = (it) => { onChange(it ? it.id : null); setLabel(it ? it.label : ''); setQ(''); setOpen(false); };
   return (
-    <div className="ac">
-      <input className="input" value={open ? q : label} placeholder={placeholder}
-        onFocus={() => search(q)} onChange={(e) => search(e.target.value)}
+    <div className={`ac ${open ? 'ac-open' : ''}`}>
+      <input className="input" value={open ? q : label} placeholder={placeholder} role="combobox" aria-expanded={open} aria-autocomplete="list"
+        onFocus={() => search(q)} onChange={(e) => { search(e.target.value); if (!e.target.value && allowEmpty && value) onChange(null); }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         onKeyDown={(e) => {
           if (e.key === 'ArrowDown') { e.preventDefault(); setHl((h) => Math.min(h + 1, items.length - 1)); }
           if (e.key === 'ArrowUp') { e.preventDefault(); setHl((h) => Math.max(h - 1, 0)); }
-          if (e.key === 'Enter' && open && items[hl]) { e.preventDefault(); pick(items[hl]); }
+          if (e.key === 'Enter' && open && items[hl]) { e.preventDefault(); e.stopPropagation(); pick(items[hl]); }
+          if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); }
         }} />
       {open && (
-        <div className="ac-list">
+        <div className="ac-list" role="listbox">
           {allowEmpty && value && <div onMouseDown={() => pick(null)} className="muted">— ללא —</div>}
           {items.map((it, i) => <div key={it.id} className={i === hl ? 'hl' : ''} onMouseDown={() => pick(it)}>{it.label}{it.phone ? <span className="muted small"> · <bdi dir="ltr">{it.phone}</bdi></span> : null}</div>)}
           {!items.length && <div className="muted">אין תוצאות</div>}
@@ -275,13 +332,58 @@ export function RefPicker({ res, value, onChange, placeholder = 'הקלידו ל
   );
 }
 
-export function UserPicker({ value, onChange }) {
+export function UserPicker({ value, onChange, placeholder = 'בחרו משתמש…' }) {
   const { data } = useApi('/users/options');
+  const options = (data?.rows || []).map((u) => ({ value: u.id, label: u.name }));
+  return <Combo options={options} value={value || ''} onChange={(v) => onChange(v ? Number(v) : null)} placeholder={placeholder} emptyLabel="— ללא —" />;
+}
+
+// ---------- בחירה עם חיפוש (במקום רשימה נפתחת רגילה) ----------
+// סדר התוצאות: התאמה מדויקת, מתחיל ב..., מכיל. מקלדת: חיצים, Enter, Escape
+function rank(options, q) {
+  const n = (x) => String(x || '').toLowerCase().replace(/[\s"'׳״.\-]/g, '');
+  const qq = n(q);
+  if (!qq) return options;
+  const exact = []; const starts = []; const has = [];
+  for (const o of options) {
+    const l = n(o.label) + (o.keywords ? ` ${n(o.keywords)}` : '');
+    if (n(o.label) === qq) exact.push(o); else if (l.startsWith(qq)) starts.push(o); else if (l.includes(qq)) has.push(o);
+  }
+  return [...exact, ...starts, ...has];
+}
+export function Combo({ options = [], value, onChange, placeholder = 'הקלידו לחיפוש…', emptyLabel, required, className = '', style }) {
+  const [q, setQ] = useState('');
+  const [open, setOpen] = useState(false);
+  const [hl, setHl] = useState(0);
+  const cur = options.find((o) => String(o.value) === String(value ?? ''));
+  const list = rank(options, q);
+  const all = emptyLabel !== undefined ? [{ value: '', label: emptyLabel, empty: true }, ...list] : list;
+  const pick = (o) => { onChange(o ? o.value : ''); setQ(''); setOpen(false); };
   return (
-    <select className="input" value={value || ''} onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}>
-      <option value="">— ללא —</option>
-      {(data?.rows || []).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
-    </select>
+    <div className={`ac ${open ? 'ac-open' : ''} ${className}`} style={style}>
+      <input className="input" role="combobox" aria-expanded={open} aria-autocomplete="list" required={required}
+        value={open ? q : (cur?.label || '')} placeholder={cur ? cur.label : placeholder}
+        onFocus={(e) => { setOpen(true); setHl(0); e.target.select(); }}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); setHl(0); }}
+        onBlur={() => setTimeout(() => { setOpen(false); setQ(''); }, 150)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHl((h) => Math.min(h + 1, all.length - 1)); }
+          if (e.key === 'ArrowUp') { e.preventDefault(); setHl((h) => Math.max(h - 1, 0)); }
+          if (e.key === 'Enter' && open && all[hl]) { e.preventDefault(); e.stopPropagation(); pick(all[hl]); }
+          if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); setQ(''); }
+        }} />
+      <span className="ac-caret" aria-hidden="true">▾</span>
+      {open && (
+        <div className="ac-list" role="listbox">
+          {all.map((o, i) => (
+            <div key={`${o.value}`} role="option" aria-selected={String(o.value) === String(value ?? '')}
+              className={`${i === hl ? 'hl' : ''} ${o.empty ? 'muted' : ''} ${String(o.value) === String(value ?? '') ? 'cur' : ''}`}
+              onMouseDown={(e) => { e.preventDefault(); pick(o.empty ? null : o); }}>{o.label}</div>
+          ))}
+          {!list.length && <div className="muted">אין תוצאות</div>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -441,4 +543,42 @@ export class ErrorBoundary extends React.Component {
       </div>
     );
   }
+}
+
+// ---------- תאריך עברי באותיות ----------
+const HEB_L = [[400, 'ת'], [300, 'ש'], [200, 'ר'], [100, 'ק'], [90, 'צ'], [80, 'פ'], [70, 'ע'], [60, 'ס'], [50, 'נ'], [40, 'מ'], [30, 'ל'], [20, 'כ'], [10, 'י'], [9, 'ט'], [8, 'ח'], [7, 'ז'], [6, 'ו'], [5, 'ה'], [4, 'ד'], [3, 'ג'], [2, 'ב'], [1, 'א']];
+/** 15 -> ט״ו, 1 -> א׳ */
+export function hebNum(n) {
+  let num = Number(n) % 1000;
+  if (!num) return '';
+  let out = '';
+  for (const [v, l] of HEB_L) {
+    while (num >= v) {
+      if (num === 15) { out += 'טו'; num = 0; break; }
+      if (num === 16) { out += 'טז'; num = 0; break; }
+      out += l; num -= v;
+    }
+  }
+  return out.length === 1 ? `${out}׳` : `${out.slice(0, -1)}״${out.slice(-1)}`;
+}
+/** "ט״ו בתשרי" */
+export function hebDayMonth(day, monthLabel) {
+  if (!day && !monthLabel) return '';
+  return `${day ? hebNum(day) : ''}${monthLabel ? ` ב${monthLabel}` : ''}`.trim();
+}
+
+// ---------- מעבר בין עמודים ברשימה ארוכה ----------
+export function Pager({ total, offset = 0, size = 1000, count, onChange }) {
+  if (!total || total <= size) return null;
+  const from = offset + 1;
+  const to = offset + (count ?? Math.min(size, total - offset));
+  return (
+    <div className="pager notice small" role="navigation" aria-label="עמודים">
+      <span>מוצגות {from.toLocaleString('he-IL')}-{to.toLocaleString('he-IL')} מתוך {Number(total).toLocaleString('he-IL')}. אפשר לצמצם בחיפוש או בסינון.</span>
+      <span className="row" style={{ gap: 6 }}>
+        <button type="button" className="btn sm" disabled={offset <= 0} onClick={() => { onChange(Math.max(0, offset - size)); window.scrollTo(0, 0); }}>→ הקודמים</button>
+        <button type="button" className="btn sm" disabled={offset + size >= total} onClick={() => { onChange(offset + size); window.scrollTo(0, 0); }}>הבאים ←</button>
+      </span>
+    </div>
+  );
 }

@@ -377,7 +377,8 @@ export function AppShell({ site }) {
   useEffect(() => { if (me?.user && !(me.user.must_change_pin && !me.impersonator)) api('/meta').then(setMeta).catch(setMeErr); }, [me?.user?.active_role, me?.user?.must_change_pin]);
   useEffect(() => {
     if (!me?.user || (me.user.must_change_pin && !me.impersonator)) return;
-    Promise.all([api('/dashboard').catch(() => ({})), api('/inbox').catch(() => ({}))]).then(([d, ib]) => setCounts({ tasks: d.tasks?.c, boxes: d.boxesDue?.c, aid: d.aidOpen?.c, contact: d.contactOpen?.c, spiritual: d.spiritualPending?.c, inbox: ib.unread }));
+    // בקשה קטנה רק למונים שבתפריט (במקום לטעון את כל לוח הבקרה בכל מעבר מסך)
+    api(`/counts${demoMode ? `?demo=${demoMode}` : ''}`).then(setCounts).catch(() => {});
   }, [me?.user?.active_role, path, liveTick]);
   useEffect(() => { const on = () => setLiveTick((t) => t + 1); window.addEventListener('oy:refresh', on); return () => window.removeEventListener('oy:refresh', on); }, []);
   useEffect(() => setSideOpen(false), [path]);
