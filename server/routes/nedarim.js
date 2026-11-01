@@ -261,7 +261,13 @@ export function registerNedarimRoutes(r) {
     requirePerm(ctx, 'dev.only');
     const t = await query("DELETE FROM transactions WHERE source = 'nedarim' AND external_id LIKE 'AJ-%' AND (raw->>'nedarim_test')::boolean IS TRUE");
     const d = await query(`DELETE FROM donors WHERE ($1 = ANY(tags) OR (is_demo AND id_number = $2 AND id IN (SELECT donor_id FROM donor_links WHERE source = 'nedarim' AND external_id LIKE 'WEB-%')))
-      AND NOT EXISTS (SELECT 1 FROM transactions x WHERE x.donor_id = donors.id)`, [DUMMY_TAG, TEST_ID]);
+      AND NOT EXISTS (SELECT 1 FROM transactions x WHERE x.donor_id = donors.id)
+      AND NOT EXISTS (SELECT 1 FROM documents x WHERE x.donor_id = donors.id)
+      AND NOT EXISTS (SELECT 1 FROM standing_orders x WHERE x.donor_id = donors.id)
+      AND NOT EXISTS (SELECT 1 FROM charge_batch_items x WHERE x.donor_id = donors.id)
+      AND NOT EXISTS (SELECT 1 FROM pledges x WHERE x.donor_id = donors.id)
+      AND NOT EXISTS (SELECT 1 FROM interactions x WHERE x.donor_id = donors.id)
+      AND NOT EXISTS (SELECT 1 FROM spiritual_orders x WHERE x.donor_id = donors.id)`, [DUMMY_TAG, TEST_ID]);
     await audit(ctx.user, 'nedarim_tests_clear', 'provider', 'nedarim', { transactions: t.rowCount, donors: d.rowCount });
     ctx.json(200, { message: `נמחקו ${t.rowCount} תנועות בדיקה ו-${d.rowCount} לקוחות דמה` });
   });

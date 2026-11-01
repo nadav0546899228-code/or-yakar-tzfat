@@ -198,15 +198,16 @@ export function waHref(p, text = '') {
 
 // ---------- רכיבים ----------
 // ---------- רענון חכם ושינויים שלא נשמרו ----------
-// עדכון חי לא מרענן מסך כשחלון עריכה פתוח או כשיש שינויים שלא נשמרו - הרענון מחכה לסגירה (כמו בנוסעים בן טובים)
+// עדכון חי לא מרענן מסך כשיש טופס עם שינויים שלא נשמרו - הרענון מחכה לשמירה או לסגירה (כמו בנוסעים בן טובים)
 const dirtySet = new Set();
 let refreshPending = false;
 export function requestRefresh() {
-  if (modalStack.length || dirtySet.size) { refreshPending = true; return; }
+  // רק טופס עם שינויים שלא נשמרו עוצר רענון (חלון מידע פתוח לא עוצר)
+  if (dirtySet.size) { refreshPending = true; return; }
   window.dispatchEvent(new Event('oy:refresh'));
 }
 function flushRefresh() {
-  if (refreshPending && !modalStack.length && !dirtySet.size) {
+  if (refreshPending && !dirtySet.size) {
     refreshPending = false;
     setTimeout(() => window.dispatchEvent(new Event('oy:refresh')), 60);
   }
@@ -277,7 +278,8 @@ export function Field({ label, children, full, hint, error }) {
   const child = only && !only.props.id ? React.cloneElement(only, { id, 'aria-invalid': error ? true : undefined }) : children;
   return (
     <div className={`field ${full ? 'full' : ''} ${error ? 'has-error' : ''}`}>
-      <label htmlFor={only ? (only.props.id || id) : undefined}>{label}</label>
+      <label htmlFor={only ? (only.props.id || id) : undefined}
+        onClick={only ? undefined : (e) => { const el = e.currentTarget.parentElement.querySelector('input:not([type=hidden]), select, textarea'); if (el && el !== document.activeElement) el.focus(); }}>{label}</label>
       {child}
       {error && <span className="field-error">{error}</span>}
       {hint && <span className="small muted">{hint}</span>}

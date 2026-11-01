@@ -35,6 +35,7 @@ export async function assertInScope(resKey, user, id) {
   const ok = await one(`SELECT 1 FROM ${res.table} WHERE ${res.table}.id = $1 AND ${where}`, params);
   if (!ok) throw new HttpError(404, 'לא נמצא');
 }
+export const HISTORY_BLOCKED = 'לא ניתן למחוק: יש לרשומה היסטוריה (תרומות, קבלות, שיחות וכו׳). אפשר לסמן אותה כלא פעילה';
 const PICKER_OPEN = ['institutions', 'purposes', 'campaigns', 'events', 'segments'];
 
 export function scopeClause(res, user, params) {
@@ -214,7 +215,13 @@ export function registerCrudRoutes(r) {
     const before = await one(`SELECT * FROM ${res.table} WHERE id = $1`, [ctx.params.id]);
     if (!before) throw new HttpError(404, 'לא נמצא');
     if (!ctx.body.reason && ['donors', 'institutions'].includes(ctx.params.res)) throw new HttpError(400, 'יש לציין סיבת מחיקה');
-    await query(`DELETE FROM ${res.table} WHERE id = $1`, [ctx.params.id]);
+    try {
+      await query(`DELETE FROM ${res.table} WHERE id = $1`, [ctx.params.id]);
+    } catch (e) {
+      // מפתח זר RESTRICT: לרשומה יש היסטוריה כספית או היסטוריית קשר - לא מוחקים
+      if (e.code === '23503') throw new HttpError(409, HISTORY_BLOCKED, { code: 'has_history' });
+      throw e;
+    }
     await audit(ctx.user, 'delete', ctx.params.res, ctx.params.id, { reason: ctx.body.reason || null, snapshot: summarize(before) });
     ctx.json(200, { ok: true });
   });

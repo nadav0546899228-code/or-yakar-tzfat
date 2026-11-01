@@ -1,6 +1,6 @@
 // מנוע החיבורים: סנכרון, פעולות על תנועות/הו"ק, הפקת מסמכים ושליחת הודעות.
 // בסביבת פיתוח: ספק עם מתאם אמיתי פונה ל-Sandbox של הספק; ספק בהדמיה מייצר נתונים מסומנים כדוגמה.
-import { query, one, many, insert } from '../lib/db.js';
+import { query, one, many, insert, tx } from '../lib/db.js';
 import { israelDay, israelMonth } from '../lib/dates.js';
 import { encrypt, decrypt, normalizePhone } from '../lib/security.js';
 import { HttpError } from '../lib/router.js';
@@ -471,14 +471,19 @@ export async function cancelDocument(docId, user, { reason } = {}) {
   if (doc.status === 'cancelled') throw new HttpError(400, 'המסמך כבר בוטל');
   const st = await providerState(doc.provider);
   if (doc.provider === 'greeninvoice' && st.secrets.api_key_id && !doc.sandbox) await GI.cancel(st, doc);
-  // לפי חוק ניהול ספרים לא מוחקים מסמך: מסמנים בוטל ומפיקים זיכוי
-  await query("UPDATE documents SET status = 'cancelled' WHERE id = $1", [doc.id]);
-  const credit = await insert('documents', {
-    donor_id: doc.donor_id, provider: doc.provider, type: 'credit', number: `${doc.number}-Z`, amount: doc.amount, currency: doc.currency,
-    lang: doc.lang, tax_report_status: doc.type === 'receipt46' ? 'pending' : 'not_required', related_document_id: doc.id,
-    sandbox: doc.sandbox, notes: `ביטול: ${reason || ''}`, is_demo: doc.is_demo,
+  // לפי חוק ניהול ספרים לא מוחקים מסמך: מסמנים בוטל ומפיקים זיכוי.
+  // שלושת העדכונים המקומיים בטרנזקציה אחת - אין מצב של "בוטל בלי זיכוי" או זיכוי שהתנועה עדיין מצביעה על המקור
+  const credit = await tx(async (t) => {
+    const upd = await t.query("UPDATE documents SET status = 'cancelled' WHERE id = $1 AND status <> 'cancelled'", [doc.id]);
+    if (!upd.rowCount) throw new HttpError(400, 'המסמך כבר בוטל');
+    const c = await t.insert('documents', {
+      donor_id: doc.donor_id, provider: doc.provider, type: 'credit', number: `${doc.number}-Z`, amount: doc.amount, currency: doc.currency,
+      lang: doc.lang, tax_report_status: doc.type === 'receipt46' ? 'pending' : 'not_required', related_document_id: doc.id,
+      sandbox: doc.sandbox, notes: `ביטול: ${reason || ''}`, is_demo: doc.is_demo,
+    });
+    await t.query('UPDATE transactions SET document_id = NULL WHERE document_id = $1', [doc.id]);
+    return c;
   });
-  await query('UPDATE transactions SET document_id = NULL WHERE document_id = $1', [doc.id]);
   await audit(user, 'document_cancel', 'document', doc.id, { reason, credit: credit.id });
   return { credit };
 }

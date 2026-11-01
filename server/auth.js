@@ -20,9 +20,26 @@ function perPhoneLimited(key, limit, windowMs) {
 
 const COOKIE = 'oy_sess';
 const SESSION_DAYS = 30;
+// תוקף מוחלט: גם חיבור פעיל כל יום פג 90 יום אחרי הכניסה (מצמצם נזק של עוגייה שדלפה)
+const SESSION_MAX_DAYS = 90;
 const MAX_FAILED = 5;
 const LOCK_MINUTES = 15;
 const MAX_LOCKS = 5;
+
+// ניקוי חיבורים שפגו (לפי חוסר פעילות או לפי התוקף המוחלט) - נקרא מהבדיקה השעתית בשרת
+export async function purgeExpiredSessions() {
+  const r = await query(`DELETE FROM sessions WHERE last_seen < now() - interval '${SESSION_DAYS} days'
+    OR created_at < now() - interval '${SESSION_MAX_DAYS} days'`);
+  return r.rowCount || 0;
+}
+
+// בדיקה מחדש שחיבור עדיין תקף ושהמשתמש פעיל (לזרם העדכונים החי, שנשאר פתוח שעות)
+export async function sessionStillValid(tokenHash) {
+  const r = await one(`SELECT 1 FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token_hash = $1 AND u.active = TRUE AND s.last_seen > now() - interval '${SESSION_DAYS} days'
+      AND s.created_at > now() - interval '${SESSION_MAX_DAYS} days'`, [tokenHash]);
+  return !!r;
+}
 
 export async function loadSession(ctx) {
   const token = ctx.cookies[COOKIE];
@@ -30,7 +47,8 @@ export async function loadSession(ctx) {
   ctx.donor = null;
   if (!token) return;
   const s = await one(
-    `SELECT * FROM sessions WHERE token_hash = $1 AND last_seen > now() - interval '${SESSION_DAYS} days'`,
+    `SELECT * FROM sessions WHERE token_hash = $1 AND last_seen > now() - interval '${SESSION_DAYS} days'
+      AND created_at > now() - interval '${SESSION_MAX_DAYS} days'`,
     [sha256(token)],
   );
   if (!s) return;
