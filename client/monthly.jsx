@@ -1,6 +1,6 @@
 // חיובים חודשיים יזומים: בכל חודש מסמנים את מי לחייב מבין התורמים שיש להם כרטיס שמור, ומאשרים.
 import React, { useState, useEffect, useContext, useMemo } from 'react';
-import { Link, api, money, date, datetime, Modal, AppCtx, useApi, Spinner, qs, run, toast, Tag, useDebounced, navigate, phoneHref } from './lib.jsx';
+import { Link, api, money, date, datetime, Modal, AppCtx, useApi, Spinner, qs, run, toast, Tag, useDebounced, navigate, phoneHref, confirmDialog } from './lib.jsx';
 import { SOURCE_LABELS } from './labels.js';
 import { can } from './app.jsx';
 import { Icon } from './icons.jsx';
@@ -218,8 +218,7 @@ function BatchResult({ data, onClose, onRetry, busy, canAct, onChanged }) {
   const done = (batch.total_success || 0) + (batch.total_failed || 0) + (batch.total_skipped || 0);
   const resolve = (i, outcome) => {
     const q = outcome === 'success' ? `לסמן שהחיוב של ${i.donor_name} עבר בפועל? (רק אחרי בדיקה מול הספק)` : `לסמן שהחיוב של ${i.donor_name} לא עבר? אחרי זה אפשר לחייב אותו שוב`;
-    if (!window.confirm(q)) return;
-    run(() => api(`/monthly-charges/items/${i.id}/resolve`, { method: 'POST', body: { outcome } }), (r) => r.message).then(() => onChanged && onChanged());
+    confirmDialog(q).then((ok) => ok && run(() => api(`/monthly-charges/items/${i.id}/resolve`, { method: 'POST', body: { outcome } }), (r) => r.message).then(() => onChanged && onChanged()));
   };
   const failed = items.filter((i) => i.status === 'failed');
   const exportXlsx = (onlyFailed) => run(async () => {
@@ -264,7 +263,7 @@ function BatchResult({ data, onClose, onRetry, busy, canAct, onChanged }) {
                 <button className="btn sm" onClick={() => resolve(i, 'failed')}>לא עבר</button>
               </span>}
               {canAct && i.status === 'failed' && <span className="tx-act row" style={{ gap: 4, justifyContent: 'flex-start' }}>
-                <button className="btn sm" disabled={busy} onClick={() => { if (window.confirm(`לנסות שוב לחייב את ${i.donor_name} ב-${money(i.amount)}?`)) onRetry(i); }}>נסה שוב</button>
+                <button className="btn sm" disabled={busy} onClick={async () => { if (await confirmDialog(`לנסות שוב לחייב את ${i.donor_name} ב-${money(i.amount)}?`)) onRetry(i); }}>נסה שוב</button>
                 {i.donor_phone && <a className="btn sm" href={phoneHref(i.donor_phone)}><Icon name="phone" size={14} />חיוג</a>}
               </span>}
             </div>

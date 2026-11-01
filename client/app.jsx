@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useRoute, api, toast, navigate, money, date, datetime, Logo, Field, Modal, AppCtx, useApi, matchPath, Spinner, qs } from './lib.jsx';
+import { Link, useRoute, api, toast, navigate, money, date, datetime, Logo, Field, Modal, AppCtx, useApi, matchPath, Spinner, qs, ErrorBoundary } from './lib.jsx';
 import { SOURCE_LABELS } from './labels.js';
 import { ResourcePage, DonorCard, TransactionsPage, KevaPage, DocumentsPage } from './crm.jsx';
 import { CallsPage, FieldPage, CalendarPage, EventPage, MessagesPage, ReportsPage, MasavPage, DuplicatesPage } from './ops.jsx';
@@ -420,7 +420,7 @@ export function AppShell({ site }) {
             <Link to="/app/profile" className="btn ghost sm topbar-name">{user.name}</Link>
             <button className="btn sm" onClick={async () => { await api('/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}>יציאה</button>
           </div>
-          <div className="content">{Page ? <Page params={params} /> : <div className="empty">העמוד לא נמצא</div>}</div>
+          <div className="content"><ErrorBoundary resetKey={path}>{Page ? <Page params={params} /> : <div className="empty">העמוד לא נמצא</div>}</ErrorBoundary></div>
         </div>
       </div>
       <nav className="bottom-nav">

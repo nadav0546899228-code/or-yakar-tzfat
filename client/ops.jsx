@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { api, useApi, toast, run, Modal, Field, RefPicker, UserPicker, Spinner, Tag, Link, navigate, money, date, datetime, today, qs, download, downloadPost, AppCtx, phoneHref, waHref, SignaturePad } from './lib.jsx';
+import { api, useApi, toast, run, Modal, Field, RefPicker, UserPicker, Spinner, Tag, Link, navigate, money, date, datetime, today, qs, download, downloadPost, AppCtx, phoneHref, waHref, SignaturePad, confirmDialog } from './lib.jsx';
 import { CALL_REASON, DATE_KIND, SOURCE_LABELS } from './labels.js';
 import { can } from './app.jsx';
 import { NewDonation } from './crm.jsx';
@@ -317,7 +317,7 @@ export function MessagesPage() {
             <div className="row">{[['whatsapp', 'וואטסאפ'], ['sms', 'SMS'], ['email', 'מייל']].map(([k, l]) => <button key={k} className={`btn sm ${channel === k ? 'primary' : ''}`} onClick={() => setChannel(k)}>{l}</button>)}</div>
             {channel === 'email' && <Field label="נושא"><input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} /></Field>}
             <Field label="נוסח ({שם} יוחלף בשם התורם)"><textarea className="input" style={{ minHeight: 140 }} value={body} onChange={(e) => setBody(e.target.value)} /></Field>
-            <button className="btn primary" disabled={!rows.length} onClick={() => { if (window.confirm(`לשלוח ל-${rows.length} תורמים?`)) run(() => api('/messages/bulk', { method: 'POST', body: { donor_ids: rows.map((r) => r.id), channel, body, subject } }), (r) => `נשלחו ${r.sent}${r.sandbox ? ' (הדמיה - נרשמו ביומן)' : ''}`); }}>שליחה</button>
+            <button className="btn primary" disabled={!rows.length} onClick={async () => { if (await confirmDialog(`לשלוח ל-${rows.length} תורמים?`)) run(() => api('/messages/bulk', { method: 'POST', body: { donor_ids: rows.map((r) => r.id), channel, body, subject } }), (r) => `נשלחו ${r.sent}${r.sandbox ? ' (הדמיה - נרשמו ביומן)' : ''}`); }}>שליחה</button>
             <p className="small muted">תורמים שסומנו "לא ליצור קשר" מסוננים אוטומטית.</p>
           </div>
         </div>
@@ -404,8 +404,8 @@ export function DuplicatesPage() {
         <div className="table-wrap"><table className="t"><thead><tr><th>כרטיס א׳</th><th>כרטיס ב׳</th><th>התאמה לפי</th><th /></tr></thead>
           <tbody>{data.rows.map((r) => (
             <tr key={`${r.a_id}-${r.b_id}`}><td><Link to={`/app/donors/${r.a_id}`}>{r.a_name}</Link> <span className="muted small">#{r.a_id}</span></td><td><Link to={`/app/donors/${r.b_id}`}>{r.b_name}</Link> <span className="muted small">#{r.b_id}</span></td><td><Tag>{r.reason}</Tag></td>
-              <td className="nowrap"><button className="btn sm" onClick={() => window.confirm(`למזג את #${r.b_id} לתוך #${r.a_id}?`) && run(() => api('/donors/merge', { method: 'POST', body: { keep_id: r.a_id, remove_id: r.b_id } }), 'מוזג').then(reload)}>מיזוג לא׳</button>
-                <button className="btn sm" onClick={() => window.confirm(`למזג את #${r.a_id} לתוך #${r.b_id}?`) && run(() => api('/donors/merge', { method: 'POST', body: { keep_id: r.b_id, remove_id: r.a_id } }), 'מוזג').then(reload)}>מיזוג לב׳</button></td></tr>
+              <td className="nowrap"><button className="btn sm" onClick={async () => (await confirmDialog(`למזג את #${r.b_id} לתוך #${r.a_id}? כל התרומות וההיסטוריה יעברו לכרטיס #${r.a_id}`)) && run(() => api('/donors/merge', { method: 'POST', body: { keep_id: r.a_id, remove_id: r.b_id } }), 'מוזג').then(reload)}>מיזוג לא׳</button>
+                <button className="btn sm" onClick={async () => (await confirmDialog(`למזג את #${r.a_id} לתוך #${r.b_id}? כל התרומות וההיסטוריה יעברו לכרטיס #${r.b_id}`)) && run(() => api('/donors/merge', { method: 'POST', body: { keep_id: r.b_id, remove_id: r.a_id } }), 'מוזג').then(reload)}>מיזוג לב׳</button></td></tr>
           ))}{!data.rows.length && <tr><td colSpan={4} className="empty">לא נמצאו כפילויות</td></tr>}</tbody></table></div>
       )}
     </div>

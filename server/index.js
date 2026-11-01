@@ -213,12 +213,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'GET' && !pathname.startsWith('/api/diag/client-error') && !pathname.startsWith('/api/notifications/read')) bumpLive();
   } catch (e) {
     const status = e.status || 500;
-    if (status >= 500 && status !== 503) {
-      console.error(`[${req.method} ${pathname}]`, e);
-      logError({ source: 'server', path: `${req.method} ${pathname}`, message: e.message, stack: e.stack, userId: ctx.user?.id || null });
+    const isServerFault = status >= 500 && status !== 503;
+    // מזהה שגיאה ייחודי שמוצג למשתמש ונשמר ביומן - כך אפשר למצוא בדיוק מה קרה לפי צילום מסך
+    const errId = isServerFault ? `E-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}` : undefined;
+    if (isServerFault) {
+      console.error(`[${errId}] [${req.method} ${pathname}]`, e);
+      logError({ source: 'server', path: `${req.method} ${pathname}`, message: e.message, stack: e.stack, userId: ctx.user?.id || null, errorId: errId });
     }
-    const errId = status >= 500 && status !== 503 ? `E-${Date.now().toString(36)}` : undefined;
-    ctx.json(status, { error: status >= 500 && status !== 503 ? `שגיאת שרת (${errId}). הפרטים נשמרו ביומן השרת` : e.message, ...(e.extra || {}) });
+    ctx.json(status, { error: isServerFault ? `שגיאת שרת. אם זה חוזר, שלחו את המזהה ${errId}` : e.message, ...(isServerFault ? { error_id: errId } : {}), ...(e.extra || {}) });
   }
 });
 

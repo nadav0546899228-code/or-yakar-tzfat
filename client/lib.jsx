@@ -41,17 +41,33 @@ export function matchPath(pattern, path) {
 }
 
 // ---------- API ----------
-export async function api(path, { method = 'GET', body, raw } = {}) {
-  const res = await fetch(`/api${path}`, {
-    method,
-    credentials: 'same-origin',
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
+const STATUS_TEXT = {
+  400: 'הבקשה אינה תקינה', 401: 'נדרשת כניסה מחדש למערכת', 403: 'אין הרשאה לפעולה זו', 404: 'הפריט לא נמצא',
+  409: 'הנתונים השתנו בינתיים - רעננו ונסו שוב', 413: 'הקובץ או הבקשה גדולים מדי', 429: 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות',
+  502: 'השרת לא זמין כרגע. נסו שוב בעוד רגע', 503: 'השרת מתעורר או בעדכון. נסו שוב בעוד רגע', 504: 'השרת לא הגיב בזמן. נסו שוב',
+};
+export async function api(path, { method = 'GET', body, raw, timeout } = {}) {
+  // הגבלת זמן: בקשת קריאה שלא חוזרת תוך 20 שניות (פעולות שינוי - דקה) מסתיימת בהודעה ברורה במקום "טוען" נצחי
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeout || (method === 'GET' ? 20000 : 60000)) : null;
+  let res;
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      credentials: 'same-origin',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctrl?.signal,
+    });
+  } catch (e) {
+    const err = new Error(e?.name === 'AbortError' ? 'השרת לא הגיב בזמן. בדקו את החיבור ונסו שוב' : (typeof navigator !== 'undefined' && navigator.onLine === false ? 'אין חיבור לאינטרנט' : 'לא ניתן להתחבר לשרת. נסו שוב'));
+    err.status = 0;
+    throw err;
+  } finally { if (timer) clearTimeout(timer); }
   if (raw) return res;
   const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(data.error || `שגיאה ${res.status}`);
+    const err = new Error(data.error || STATUS_TEXT[res.status] || `שגיאה ${res.status}`);
     err.status = res.status;
     err.data = data;
     throw err;
@@ -296,30 +312,94 @@ export { useCallback };
 // הודעת "יש גרסה חדשה" - בודק כל דקה (ובחזרה ללשונית) אם הגרסה בשרת השתנתה. לא מרענן לבד.
 export function UpdateBanner() {
   const [newer, setNewer] = useState(false);
+  const [hidden, setHidden] = useState(false);
   useEffect(() => {
     // eslint-disable-next-line no-undef
     const mine = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : null;
     if (!mine) return undefined;
-    const check = () => fetch(`/build.json?t=${Date.now()}`, { cache: 'no-store' }).then((r) => r.json()).then((b) => { if (b.build_id && b.build_id !== mine) setNewer(true); }).catch(() => {});
-    const t = setInterval(check, 60000);
+    let last = 0;
+    const check = () => {
+      if (Date.now() - last < 30000) return; // לכל היותר פעם בחצי דקה
+      last = Date.now();
+      fetch(`/build.json?t=${Date.now()}`, { cache: 'no-store' }).then((r) => r.json()).then((b) => { if (b.build_id && b.build_id !== mine) setNewer(true); }).catch(() => {});
+    };
+    const t = setInterval(check, 5 * 60000);
     const onVis = () => document.visibilityState === 'visible' && check();
     document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onVis);
     check();
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis); };
   }, []);
-  if (!newer) return null;
-  // עדכון חובה: חלון שחוסם את המסך עד לעדכון, בלי אפשרות לדחות
+  const { path } = useRoute();
+  if (!newer || hidden) return null;
+  // באתר הציבורי אין צורך בהודעה - הכניסה הבאה כבר תקבל את הגרסה החדשה
+  if (!path.startsWith('/app')) return null;
+  // פס עליון שלא חוסם עבודה: מה שמוקלד כרגע לא הולך לאיבוד, והעדכון בלחיצה כשנוח
   return (
-    <div className="update-lock" role="alertdialog" aria-modal="true" aria-labelledby="upd-t">
-      <div className="update-card">
-        <div className="update-icon">↻</div>
-        <h3 id="upd-t">יש גרסה חדשה של המערכת</h3>
-        <p>כדי להמשיך לעבוד יש לעדכן לגרסה החדשה. העדכון לוקח כמה שניות.</p>
-        <button className="btn gold" onClick={async () => {
-          try { const regs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((regs || []).map((r) => r.update())); } catch { /* */ }
-          window.location.reload();
-        }}>עדכון עכשיו</button>
+    <div className="update-bar" role="status">
+      <span>↻ יש גרסה חדשה של המערכת</span>
+      <button className="btn gold sm" onClick={async () => {
+        try { const regs = await navigator.serviceWorker?.getRegistrations(); await Promise.all((regs || []).map((r) => r.update())); } catch { /* */ }
+        window.location.reload();
+      }}>עדכון עכשיו</button>
+      <button className="btn ghost sm" aria-label="אחר כך" onClick={() => setHidden(true)}>✕</button>
+    </div>
+  );
+}
+
+// ---------- חלון אישור מעוצב (במקום window.confirm) ----------
+let pushConfirm = null;
+/** מחזיר Promise: true = אישור, false = כפתור הביטול, null = סגירה בלי בחירה (Escape/לחיצה בחוץ) */
+export function confirmDialog(message, { ok = 'אישור', cancel = 'ביטול', danger } = {}) {
+  if (!pushConfirm) return Promise.resolve(window.confirm(message));
+  return new Promise((resolve) => pushConfirm({ message, ok, cancel, danger: danger ?? /מחק|מחיקה|ביטול|לבטל|הסר|זיכוי|לזכות/.test(message), resolve }));
+}
+export function ConfirmHost() {
+  const [q, setQ] = useState([]);
+  useEffect(() => { pushConfirm = (item) => setQ((x) => [...x, item]); return () => { pushConfirm = null; }; }, []);
+  const cur = q[0];
+  useEffect(() => {
+    if (!cur) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') done(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+  if (!cur) return null;
+  function done(v) { cur.resolve(v); setQ((x) => x.slice(1)); }
+  return (
+    <div className="modal-bg confirm-bg" onClick={() => done(null)}>
+      <div className="modal narrow" role="alertdialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-body" style={{ whiteSpace: 'pre-line', fontSize: 16, padding: '22px 20px 12px' }}>{cur.message}</div>
+        <div className="modal-foot">
+          <button className="btn" onClick={() => done(false)}>{cur.cancel}</button>
+          <button className={`btn ${cur.danger ? 'danger' : 'primary'}`} autoFocus onClick={() => done(true)}>{cur.ok}</button>
+        </div>
       </div>
     </div>
   );
+}
+
+// ---------- רשת ביטחון: תקלה במסך אחד לא מפילה את כל המערכת ----------
+export class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) {
+    try {
+      fetch('/api/diag/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: String(err?.message || err).slice(0, 500), stack: String(info?.componentStack || err?.stack || '').slice(0, 2000), url: window.location.pathname }) });
+    } catch { /* */ }
+  }
+  componentDidUpdate(prev) { if (prev.resetKey !== this.props.resetKey && this.state.err) this.setState({ err: null }); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="empty">
+        <b>משהו השתבש במסך הזה</b>
+        <div className="small muted" style={{ margin: '6px 0 12px' }}>התקלה נשלחה ליומן. אפשר לנסות שוב או לטעון את הדף מחדש.</div>
+        <div className="row" style={{ justifyContent: 'center', gap: 8 }}>
+          <button className="btn" onClick={() => this.setState({ err: null })}>נסה שוב</button>
+          <button className="btn primary" onClick={() => window.location.reload()}>טעינה מחדש</button>
+        </div>
+      </div>
+    );
+  }
 }

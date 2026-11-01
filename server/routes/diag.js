@@ -23,12 +23,12 @@ function scrub(s) {
     .slice(0, 1500);
 }
 
-export async function logError({ source = 'server', path: p = null, message, stack = null, userId = null }) {
+export async function logError({ source = 'server', path: p = null, message, stack = null, userId = null, errorId = null }) {
   try {
     const msg = scrub(message);
     const existing = await one("SELECT id FROM error_log WHERE source = $1 AND message = $2 AND COALESCE(path,'') = COALESCE($3,'') AND last_at > now() - interval '1 day'", [source, msg, p]);
-    if (existing) await query('UPDATE error_log SET count = count + 1, last_at = now() WHERE id = $1', [existing.id]);
-    else await query('INSERT INTO error_log (source, path, message, stack, user_id) VALUES ($1,$2,$3,$4,$5)', [source, p, msg, stack ? scrub(stack).slice(0, 3000) : null, userId]);
+    if (existing) await query('UPDATE error_log SET count = count + 1, last_at = now(), last_error_id = COALESCE($2, last_error_id) WHERE id = $1', [existing.id, errorId]);
+    else await query('INSERT INTO error_log (source, path, message, stack, user_id, last_error_id) VALUES ($1,$2,$3,$4,$5,$6)', [source, p, msg, stack ? scrub(stack).slice(0, 3000) : null, userId, errorId]);
     await query("DELETE FROM error_log WHERE last_at < now() - interval '60 days'");
   } catch (e) {
     console.error('[logError]', e.message);
@@ -99,7 +99,7 @@ export function registerDiagRoutes(r) {
       last_status: byKey[p.key]?.last_status || null, last_error: byKey[p.key]?.last_error ? scrub(byKey[p.key].last_error) : null, last_sync_at: byKey[p.key]?.last_sync_at || null,
     }));
     const [errors, syncRuns, auditRows, users, money, settingsKeys, db] = await Promise.all([
-      many('SELECT source, path, message, stack, count, first_at, last_at FROM error_log ORDER BY last_at DESC LIMIT 60'),
+      many('SELECT source, path, message, stack, count, first_at, last_at, last_error_id FROM error_log ORDER BY last_at DESC LIMIT 60'),
       many('SELECT provider, status, imported, updated, message, started_at, finished_at FROM sync_runs ORDER BY started_at DESC LIMIT 15'),
       many('SELECT a.at, a.action, a.entity, a.entity_id, u.name AS user_name, (a.impersonator_id IS NOT NULL) AS impersonated FROM audit_log a LEFT JOIN users u ON u.id = a.user_id ORDER BY a.at DESC LIMIT 40'),
       many('SELECT id, name, roles, active, must_change_pin, locked_permanent, (locked_until > now()) AS locked_now, last_login_at, is_owner, is_demo FROM users ORDER BY id'),

@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { api, useApi, toast, run, Modal, Field, Spinner, Tag, Link, money, date, datetime, qs, AppCtx, Confirm, UserPicker, RefPicker } from './lib.jsx';
+import { api, useApi, toast, run, Modal, Field, Spinner, Tag, Link, money, date, datetime, qs, AppCtx, Confirm, UserPicker, RefPicker, confirmDialog } from './lib.jsx';
 import { can } from './app.jsx';
 
 // ---------- חיבורים ו-API ----------
@@ -84,7 +84,7 @@ function SiteTab() {
       {key === 'theme' && data && <ThemeForm value={data.value} onSaved={reload} />}
       <div className="card stack">
         <div className="row between"><h3>עריכה מתקדמת (JSON)</h3><div className="row">
-          <button className="btn sm" onClick={() => { if (window.confirm('לשחזר את ברירת המחדל?')) setText(JSON.stringify(data.defaults, null, 2)); }}>ברירת מחדל</button>
+          <button className="btn sm" onClick={async () => { if (await confirmDialog('לשחזר את ברירת המחדל? השינויים שלא נשמרו יימחקו')) setText(JSON.stringify(data.defaults, null, 2)); }}>ברירת מחדל</button>
           <button className="btn sm primary" onClick={() => { let v; try { v = JSON.parse(text); } catch { toast('JSON לא תקין', 'error'); return; } run(() => api(`/settings/${key}`, { method: 'PUT', body: { value: v } }), 'נשמר. רעננו את האתר לראות שינויים').then(reload); }}>שמירה</button></div></div>
         <textarea className="input json-edit" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} />
         <p className="small muted">כל הטקסטים, הקישורים, התמונות וקבצי השמע של האתר הציבורי נערכים כאן - בלי לגעת בקוד. עמודים: home, story, rabbi, mostod, assistance, classes, ahuza, contact, terms. סוגי מקטע: heading, sub, text, cards, chips, quote, image, gallery, audio, videos, options, facts, link.</p>
@@ -183,14 +183,14 @@ function DiagTab() {
         <div className="row">
           <button className="btn primary" onClick={() => { navigator.clipboard?.writeText(url); toast('הקישור הועתק', 'ok'); }}>העתקת הקישור</button>
           <button className="btn" onClick={load}>רענון</button>
-          <button className="btn danger" onClick={() => window.confirm('להחליף מפתח? הקישור הקודם יפסיק לעבוד') && run(() => api('/diag/rotate', { method: 'POST' }), 'הוחלף').then(reload)}>החלפת מפתח</button>
+          <button className="btn danger" onClick={async () => (await confirmDialog('להחליף מפתח? הקישור הקודם יפסיק לעבוד', { danger: true })) && run(() => api('/diag/rotate', { method: 'POST' }), 'הוחלף').then(reload)}>החלפת מפתח</button>
           <button className="btn" onClick={() => run(() => api('/diag/clear-errors', { method: 'POST' }), 'יומן השגיאות נוקה').then(load)}>ניקוי שגיאות</button>
         </div>
       </div>
       {report && (
         <div className="card">
           <h3>שגיאות אחרונות ({report.errors?.length || 0})</h3>
-          {(report.errors || []).map((e, i) => <div key={i} className="small" style={{ padding: '4px 0', borderBottom: '1px solid var(--line)' }}><Tag kind={e.source === 'client' ? 'info' : 'bad'}>{e.source}</Tag> {datetime(e.last_at)} · ×{e.count} · <span className="num">{e.path}</span><div style={{ direction: 'ltr', textAlign: 'left' }}>{e.message}</div></div>)}
+          {(report.errors || []).map((e, i) => <div key={i} className="small" style={{ padding: '4px 0', borderBottom: '1px solid var(--line)' }}><Tag kind={e.source === 'client' ? 'info' : 'bad'}>{e.source}</Tag> {datetime(e.last_at)} · ×{e.count} · <span className="num">{e.path}</span>{e.last_error_id && <> · <b className="num">{e.last_error_id}</b></>}<div style={{ direction: 'ltr', textAlign: 'left' }}>{e.message}</div></div>)}
           {!report.errors?.length && <div className="muted small">אין שגיאות 🎉</div>}
           <p className="small muted">גרסה: {report.build?.built_at || 'לא ידוע'} · {report.env?.label}</p>
         </div>
@@ -318,7 +318,7 @@ export function UsersPage() {
               <button className="btn sm" onClick={() => setEdit(u)}>עריכה</button>
               {(u.locked_permanent || u.locked_until) && <button className="btn sm" onClick={() => run(() => api(`/users/${u.id}/unlock`, { method: 'POST' }), 'שוחרר').then(reload)}>שחרור</button>}
               <button className="btn sm" onClick={() => run(() => api(`/users/${u.id}/reset-pin`, { method: 'POST' })).then((r) => setPinShow({ name: u.name, pin: r.temp_pin }))}>איפוס קוד</button>
-              {user.active_role === 'developer' && u.id !== user.id && u.active && <button className="btn sm" onClick={() => window.confirm(`להתחבר כ${u.name}? הפעולה תתועד`) && run(() => api(`/auth/impersonate/${u.id}`, { method: 'POST' })).then(() => { window.location.href = '/app'; })}>התחזות</button>}
+              {user.active_role === 'developer' && u.id !== user.id && u.active && <button className="btn sm" onClick={async () => (await confirmDialog(`להתחבר כ${u.name}? הפעולה תתועד ביומן`)) && run(() => api(`/auth/impersonate/${u.id}`, { method: 'POST' })).then(() => { window.location.href = '/app'; })}>התחזות</button>}
             </td>
           </tr>
         ))}</tbody>
@@ -337,7 +337,7 @@ function UserForm({ u, roles, actor, onClose, onDone }) {
       const res = u.id ? await api(`/users/${u.id}`, { method: 'PUT', body: { ...f, confirm_developer } }) : await api('/users', { method: 'POST', body: { ...f, confirm_developer } });
       toast('נשמר', 'ok'); onDone(res);
     } catch (e) {
-      if (e.status === 409 && e.data?.needConfirm === 'developer') { if (window.confirm('אזהרה: הרשאת מתכנת נותנת שליטה מלאה כולל מפתחות API. לאשר?')) save(true); } else toast(e.message, 'error');
+      if (e.status === 409 && e.data?.needConfirm === 'developer') { confirmDialog('אזהרה: הרשאת מתכנת נותנת שליטה מלאה כולל מפתחות API. לאשר?', { danger: true }).then((ok) => { if (ok) save(true); }); } else toast(e.message, 'error');
     }
   };
   return (

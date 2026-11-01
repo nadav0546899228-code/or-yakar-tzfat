@@ -1,7 +1,7 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
-import { RouterProvider, useRoute, api, Toasts, Spinner, UpdateBanner } from './lib.jsx';
+import { RouterProvider, useRoute, api, Toasts, Spinner, UpdateBanner, ConfirmHost, ErrorBoundary } from './lib.jsx';
 import { PublicSite } from './site.jsx';
 
 // המערכת, לוח המודעות ודף הקמפיין נטענים רק כשנכנסים אליהם - האתר הציבורי נשאר קל ומהיר
@@ -86,7 +86,7 @@ function Root() {
   if (err) return <div className="empty">לא ניתן לטעון את האתר כרגע. נסו לרענן.<div className="small muted" style={{ marginTop: 8 }}>{err.message}</div></div>;
   if (!site) return <Spinner />;
   if (path === '/login') { document.title = `כניסה - ${site.org.short_name}`; return <Suspense fallback={<Spinner />}><Login org={site.org} /></Suspense>; }
-  if (path.startsWith('/app')) { document.title = `מערכת - ${site.org.short_name}`; return <Suspense fallback={<Spinner />}><AppShell site={site} /></Suspense>; }
+  if (path.startsWith('/app')) { document.title = `מערכת - ${site.org.short_name}`; return <ErrorBoundary><Suspense fallback={<Spinner />}><AppShell site={site} /></Suspense></ErrorBoundary>; }
   return <PublicSite data={site} />;
 }
 
@@ -94,6 +94,7 @@ createRoot(document.getElementById('root')).render(
   <RouterProvider>
     <Root />
     <Toasts />
+    <ConfirmHost />
     {!window.location.pathname.startsWith('/board/') && <UpdateBanner />}
   </RouterProvider>,
 );

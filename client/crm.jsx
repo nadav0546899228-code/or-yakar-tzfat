@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import {
   api, useApi, toast, run, Modal, Field, RefPicker, UserPicker, Confirm, Spinner, ErrorBox, Tag, Link, navigate, useRoute,
-  money, date, datetime, today, qs, download, useDebounced, AppCtx, phoneHref, waHref, SignaturePad,
-} from './lib.jsx';
+  money, date, datetime, today, qs, download, useDebounced, AppCtx, phoneHref, waHref, SignaturePad, confirmDialog } from './lib.jsx';
 import { SOURCE_LABELS, TX_STATUS, SO_STATUS, TAX_STATUS, DOC_TYPES, KIND_LABELS, METHOD_LABELS, CALL_REASON, DATE_KIND } from './labels.js';
 import { can } from './app.jsx';
 import { Icon, SourceBadge } from './icons.jsx';
@@ -89,8 +88,9 @@ export function ResourceForm({ resKey, row, preset = {}, onClose, onSaved }) {
       onSaved?.(r.row);
     } catch (e) {
       if (e.status === 409 && e.data?.duplicate) {
-        if (window.confirm(`${e.message}\nלפתוח את הכרטיס הקיים? (ביטול = ליצור בכל זאת)`)) navigate(`/app/donors/${e.data.duplicate.id}`);
-        else save(true);
+        const v = await confirmDialog(`${e.message}\nלפתוח את הכרטיס הקיים, או ליצור כרטיס חדש בכל זאת?`, { ok: 'פתיחת הכרטיס הקיים', cancel: 'יצירת כרטיס חדש', danger: false });
+        if (v === true) navigate(`/app/donors/${e.data.duplicate.id}`);
+        else if (v === false) save(true);
       } else toast(e.message, 'error');
     } finally { setBusy(false); }
   };

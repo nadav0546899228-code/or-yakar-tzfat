@@ -621,3 +621,11 @@ html, body { overflow-x: hidden; max-width: 100%; }
 .bd-box { padding: 1vh 1.1vw; }
 .bd-box h3 { margin-bottom: .35em; }
 .bd-row { padding: .16em 0; }
+
+/* פס עדכון גרסה - לא חוסם את העבודה */
+.update-bar { position: fixed; top: 0; inset-inline: 0; z-index: 300; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px calc(8px) 12px; padding-top: max(8px, env(safe-area-inset-top)); background: var(--primary-dark, #0f2557); color: #fff; font-size: 14px; box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.update-bar .btn.ghost { color: #fff; }
+/* חלון אישור */
+.confirm-bg { z-index: 350; align-items: center; }
+.btn.danger.primary, .confirm-bg .btn.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
