@@ -16,6 +16,7 @@ function monthLabel(m) {
 
 const EXP = { expired: ['כרטיס פג', 'bad'], expiring: ['פג בקרוב', 'warn'], unknown: ['תוקף לא ידוע', ''], ok: null };
 const ITEM_STATUS = { success: ['עבר', 'ok'], failed: ['נכשל', 'bad'], skipped: ['דולג', ''], processing: ['בתהליך', 'warn'] };
+const BATCH_STATUS = { processing: 'בביצוע', completed: 'הסתיים', interrupted: 'נקטע - נדרשת בדיקה' };
 
 function rowState(r) {
   if (r.paid_tx_id) return 'paid';
@@ -72,9 +73,14 @@ export function MonthlyChargesPage() {
   const execute = async (items) => {
     setBusy(true);
     try {
-      const r = await api('/monthly-charges/run', { method: 'POST', body: { month, items, issue_documents: issueDocs } });
-      setResult(r);
+      let r = await api('/monthly-charges/run', { method: 'POST', body: { month, items, issue_documents: issueDocs } });
       setConfirm(false);
+      setResult(r);
+      // הסבב רץ בשרת ברקע - מתעדכנים כל שתי שניות עד שהוא מסתיים
+      while (r?.batch?.status === 'processing') {
+        await new Promise((ok) => setTimeout(ok, 2000));
+        try { r = await api(`/monthly-charges/batches/${r.batch.id}`); setResult(r); } catch { /* ניסיון נוסף בסבב הבא */ }
+      }
       reload();
     } catch (e) { toast(e.message, 'error'); } finally { setBusy(false); }
   };
@@ -187,7 +193,7 @@ export function MonthlyChargesPage() {
         </Modal>
       )}
 
-      {result && <BatchResult data={result} onClose={() => setResult(null)} onRetry={(it) => execute([{ so_id: it.standing_order_id, amount: it.amount }])} busy={busy} canAct={canAct} />}
+      {result && <BatchResult data={result} onClose={() => setResult(null)} onRetry={(it) => execute([{ so_id: it.standing_order_id, amount: it.amount }])} busy={busy} canAct={canAct} onChanged={() => { api(`/monthly-charges/batches/${result.batch.id}`).then(setResult).catch(() => {}); reload(); }} />}
     </div>
   );
 }
@@ -206,8 +212,15 @@ function BatchLine({ b, onOpen }) {
   );
 }
 
-function BatchResult({ data, onClose, onRetry, busy, canAct }) {
+function BatchResult({ data, onClose, onRetry, busy, canAct, onChanged }) {
   const { batch, items } = data;
+  const running = batch.status === 'processing';
+  const done = (batch.total_success || 0) + (batch.total_failed || 0) + (batch.total_skipped || 0);
+  const resolve = (i, outcome) => {
+    const q = outcome === 'success' ? `לסמן שהחיוב של ${i.donor_name} עבר בפועל? (רק אחרי בדיקה מול הספק)` : `לסמן שהחיוב של ${i.donor_name} לא עבר? אחרי זה אפשר לחייב אותו שוב`;
+    if (!window.confirm(q)) return;
+    run(() => api(`/monthly-charges/items/${i.id}/resolve`, { method: 'POST', body: { outcome } }), (r) => r.message).then(() => onChanged && onChanged());
+  };
   const failed = items.filter((i) => i.status === 'failed');
   const exportXlsx = (onlyFailed) => run(async () => {
     const { writeXlsx } = await import('./xlsx.js');
@@ -225,6 +238,8 @@ function BatchResult({ data, onClose, onRetry, busy, canAct }) {
       <button className="btn primary" onClick={onClose}>סגירה</button>
     </>}>
       {batch.sandbox && <div className="notice warn small" style={{ marginBottom: 10 }}>הדמיה - לא ירד כסף אמיתי</div>}
+      {running && <div className="notice small" style={{ marginBottom: 10 }}>⏳ מבצע חיובים... {done} מתוך {batch.total_selected}. אפשר להשאיר את המסך פתוח - אין לסגור את הדפדפן באמצע.</div>}
+      {batch.status === 'interrupted' && <div className="notice warn small" style={{ marginBottom: 10 }}>{BATCH_STATUS.interrupted}: הסבב הופסק באמצע. פריטים שמסומנים "בתהליך" חסומים לחיוב חוזר עד שתבדקו מול הספק ותסמנו אם עברו.</div>}
       <div className="kpis" style={{ marginBottom: 12 }}>
         <div className="kpi"><div className="label">עברו</div><div className="value" style={{ color: 'var(--ok)' }}>{batch.total_success}</div></div>
         <div className={`kpi ${batch.total_failed ? 'alert' : ''}`}><div className="label">נכשלו</div><div className="value">{batch.total_failed}</div></div>
@@ -244,6 +259,10 @@ function BatchResult({ data, onClose, onRetry, busy, canAct }) {
                 </span>
               </span>
               <span className="tx-amt num"><b>{money(i.amount, i.currency)}</b></span>
+              {canAct && i.status === 'processing' && !running && <span className="tx-act row" style={{ gap: 4, justifyContent: 'flex-start' }}>
+                <button className="btn sm" onClick={() => resolve(i, 'success')}>עבר בפועל</button>
+                <button className="btn sm" onClick={() => resolve(i, 'failed')}>לא עבר</button>
+              </span>}
               {canAct && i.status === 'failed' && <span className="tx-act row" style={{ gap: 4, justifyContent: 'flex-start' }}>
                 <button className="btn sm" disabled={busy} onClick={() => { if (window.confirm(`לנסות שוב לחייב את ${i.donor_name} ב-${money(i.amount)}?`)) onRetry(i); }}>נסה שוב</button>
                 {i.donor_phone && <a className="btn sm" href={phoneHref(i.donor_phone)}><Icon name="phone" size={14} />חיוג</a>}

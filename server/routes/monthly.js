@@ -1,6 +1,7 @@
 // חיובים חודשיים יזומים: בכל חודש בוחרים ידנית את מי לחייב מבין התורמים שיש להם כרטיס שמור (טוקן אצל הספק).
 // אין כאן הוראת קבע אוטומטית: שום חיוב לא יוצא בלי שמשתמש מורשה סימן ואישר אותו.
 import { query, one, many, insert } from '../lib/db.js';
+import { israelDay, israelMonth } from '../lib/dates.js';
 import { HttpError } from '../lib/router.js';
 import { requirePerm } from '../auth.js';
 import { audit } from '../audit.js';
@@ -10,10 +11,7 @@ import { recordTransaction, issueDocument, chargeToken, cardExpState, tokenCharg
 const DONOR_LABEL = "TRIM(COALESCE(d.title || ' ','') || COALESCE(d.first_name,'') || ' ' || COALESCE(d.last_name,''))";
 const MAX_ITEMS = 500;
 
-function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
+function currentMonth() { return israelMonth(); }
 
 function checkMonth(m) {
   const month = String(m || currentMonth());
@@ -91,6 +89,45 @@ async function batchDetails(id) {
   return { batch, items };
 }
 
+async function processBatch(batch, items, byId, { month, issueDoc, user }) {
+  const totals = { success: 0, failed: 0, skipped: 0, amount: 0 };
+  const seen = new Set();
+  try {
+    for (const it of items) {
+      const so = byId[Number(it.so_id)];
+      if (!so || seen.has(so.id)) continue;
+      seen.add(so.id);
+      const amount = Math.round(Number(it.amount ?? so.amount) * 100) / 100;
+      let res;
+      if (so.type !== 'credit' || !['active', 'failed'].includes(so.status)) res = { status: 'skipped' };
+      else if (!(amount > 0) || amount > 100000) res = { status: 'skipped' };
+      else {
+        try { res = await chargeOne(so, { month, amount, batch, issueDoc, user }); } catch (e) { res = { status: 'failed', message: e.message }; }
+      }
+      totals[res.status] = (totals[res.status] || 0) + 1;
+      if (res.status === 'success') totals.amount = Math.round((totals.amount + amount) * 100) / 100;
+      // עדכון התקדמות שוטף - המסך מציג כמה כבר טופלו
+      await query('UPDATE charge_batches SET total_success = $2, total_failed = $3, total_skipped = $4, amount_success = $5 WHERE id = $1',
+        [batch.id, totals.success, totals.failed, totals.skipped, totals.amount]);
+      if (!tokenChargeIsSimulated(so)) await new Promise((ok) => setTimeout(ok, 300)); // קצב מתון מול הספק
+    }
+  } finally {
+    await query(`UPDATE charge_batches SET status = 'completed', finished_at = now(), total_success = $2, total_failed = $3, total_skipped = $4, amount_success = $5 WHERE id = $1`,
+      [batch.id, totals.success, totals.failed, totals.skipped, totals.amount]);
+    await audit(user, 'monthly_charge_run', 'charge_batch', batch.id, { month, selected: batch.total_selected, ...totals });
+  }
+}
+
+// בהפעלת השרת: סבב שנשאר "בתהליך" יותר מחצי שעה נקטע (השרת הופעל מחדש). פריטים באמצע נשארים חסומים לחיוב חוזר עד בדיקה ידנית
+export async function sweepInterruptedBatches() {
+  const rows = await many(`UPDATE charge_batches SET status = 'interrupted', finished_at = now()
+    WHERE status = 'processing' AND created_at < now() - interval '30 minutes' RETURNING id`);
+  if (!rows.length) return;
+  await query(`UPDATE charge_batch_items SET error_message = 'הסבב נקטע באמצע - יש לבדוק מול הספק אם החיוב עבר ולסמן'
+    WHERE status = 'processing' AND batch_id = ANY($1::int[])`, [rows.map((x) => x.id)]);
+  console.warn(`[monthly-charges] ${rows.length} סבבים סומנו כנקטעים`);
+}
+
 export function registerMonthlyRoutes(r) {
   // רשימת התורמים לחיוב בחודש הנבחר
   r.get('/api/monthly-charges', async (ctx) => {
@@ -130,25 +167,24 @@ export function registerMonthlyRoutes(r) {
       batch_month: month, status: 'processing', issue_documents: !!b.issue_documents, total_selected: ids.length,
       sandbox: isSandbox(), created_by: ctx.user.id, is_demo: sos.length > 0 && sos.every((s) => s.is_demo),
     });
-    const totals = { success: 0, failed: 0, skipped: 0, amount: 0 };
-    const seen = new Set();
-    for (const it of items) {
-      const so = byId[Number(it.so_id)];
-      if (!so || seen.has(so.id)) continue;
-      seen.add(so.id);
-      const amount = Math.round(Number(it.amount ?? so.amount) * 100) / 100;
-      let res;
-      if (so.type !== 'credit' || !['active', 'failed'].includes(so.status)) res = { status: 'skipped' };
-      else if (!(amount > 0) || amount > 100000) res = { status: 'skipped' };
-      else res = await chargeOne(so, { month, amount, batch, issueDoc: !!b.issue_documents, user: ctx.user });
-      totals[res.status] = (totals[res.status] || 0) + 1;
-      if (res.status === 'success') totals.amount += amount;
-      if (!tokenChargeIsSimulated(so)) await new Promise((ok) => setTimeout(ok, 300)); // קצב מתון מול הספק
-    }
-    await query(`UPDATE charge_batches SET status = 'completed', finished_at = now(), total_success = $2, total_failed = $3, total_skipped = $4, amount_success = $5 WHERE id = $1`,
-      [batch.id, totals.success, totals.failed, totals.skipped, totals.amount]);
-    await audit(ctx.user, 'monthly_charge_run', 'charge_batch', batch.id, { month, selected: ids.length, ...totals });
+    // הסבב רץ ברקע: התשובה חוזרת מיד, והמסך מציג התקדמות. כך סבב גדול לא נקטע בגלל זמן המתנה של הדפדפן או השרת
+    const user = ctx.user;
+    setImmediate(() => { processBatch(batch, items, byId, { month, issueDoc: !!b.issue_documents, user }).catch((e) => console.error('[monthly-charges]', e)); });
     ctx.json(200, await batchDetails(batch.id));
+  });
+
+  // פריט שנשאר "בתהליך" (למשל אם השרת הופעל מחדש באמצע): אחרי בדיקה מול הספק, מסמנים ידנית אם עבר או לא
+  r.post('/api/monthly-charges/items/:id/resolve', async (ctx) => {
+    requirePerm(ctx, 'keva.actions');
+    const outcome = ctx.body?.outcome;
+    if (!['failed', 'success'].includes(outcome)) throw new HttpError(400, 'יש לבחור אם החיוב עבר או לא');
+    const item = await one('SELECT * FROM charge_batch_items WHERE id = $1', [Number(ctx.params.id)]);
+    if (!item) throw new HttpError(404, 'הפריט לא נמצא');
+    if (item.status !== 'processing') throw new HttpError(409, 'הפריט כבר אינו בתהליך');
+    const note = outcome === 'success' ? 'סומן ידנית כעבר (אחרי בדיקה מול הספק)' : 'סומן ידנית כלא עבר - אפשר לחייב שוב';
+    await query('UPDATE charge_batch_items SET status = $2, error_message = $3 WHERE id = $1', [item.id, outcome, note]);
+    await audit(ctx.user, 'monthly_charge_resolve', 'charge_batch_item', item.id, { outcome, batch_id: item.batch_id });
+    ctx.json(200, { ok: true, message: note });
   });
 
   r.get('/api/monthly-charges/batches/:id', async (ctx) => {
@@ -172,7 +208,7 @@ export function registerMonthlyRoutes(r) {
       const open = await one("SELECT id FROM call_tasks WHERE donor_id = $1 AND reason = 'failed_charge' AND status IN ('open', 'callback') LIMIT 1", [it.donor_id]);
       if (open) continue;
       await insert('call_tasks', {
-        donor_id: it.donor_id, reason: 'failed_charge', priority: 1, due_date: new Date().toISOString().slice(0, 10),
+        donor_id: it.donor_id, reason: 'failed_charge', priority: 1, due_date: israelDay(),
         standing_order_id: it.standing_order_id, notes: `חיוב חודשי ${it.batch_month} נכשל: ${it.error_message || ''}`.slice(0, 300), is_demo: it.is_demo,
       });
       created++;
@@ -221,7 +257,7 @@ export function registerMonthlyRoutes(r) {
       const d = await insert('donors', { first_name: first, last_name: last, phone, id_number: '890108558', city: 'צפת', tags: ['בדיקת חיוב חודשי'], is_demo: true });
       await insert('standing_orders', {
         donor_id: d.id, source: 'nedarim', external_id: `SBX-MB-${d.id}`, type: 'credit', amount, currency: 'ILS', day_of_month: 10,
-        start_date: new Date().toISOString().slice(0, 10), status: 'active', charge_mode: 'manual', card_last4: String(4100 + i * 111).slice(-4),
+        start_date: israelDay(), status: 'active', charge_mode: 'manual', card_last4: String(4100 + i * 111).slice(-4),
         card_exp: i === 4 ? exp(-1) : i === 5 ? exp(1) : exp(24), token_ref: `SANDBOX-TOKEN-MB-${d.id}`, notes: 'תורם בדיקה לחיוב חודשי', is_demo: true,
       });
       created++;

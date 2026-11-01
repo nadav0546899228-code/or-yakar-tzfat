@@ -1,6 +1,7 @@
 // מנוע החיבורים: סנכרון, פעולות על תנועות/הו"ק, הפקת מסמכים ושליחת הודעות.
 // בסביבת פיתוח: ספק עם מתאם אמיתי פונה ל-Sandbox של הספק; ספק בהדמיה מייצר נתונים מסומנים כדוגמה.
 import { query, one, many, insert } from '../lib/db.js';
+import { israelDay } from '../lib/dates.js';
 import { encrypt, decrypt, normalizePhone } from '../lib/security.js';
 import { HttpError } from '../lib/router.js';
 import { isSandbox } from '../env.js';
@@ -98,7 +99,7 @@ const GI = {
     const body = {
       description: description || 'תרומה למוסדות אור יקר צפת',
       type: GI.typeCode(type, config),
-      date: (tx?.date || new Date().toISOString().slice(0, 10)),
+      date: (tx?.date || israelDay()),
       lang: lang === 'en' ? 'en' : 'he',
       currency: currency || 'ILS',
       vatType: 0,
@@ -109,7 +110,7 @@ const GI = {
         phone: donor?.phone || undefined,
         add: false,
       },
-      payment: [{ type: GI.paymentType(tx?.method), price: Number(amount), currency: currency || 'ILS', date: tx?.date || new Date().toISOString().slice(0, 10) }],
+      payment: [{ type: GI.paymentType(tx?.method), price: Number(amount), currency: currency || 'ILS', date: tx?.date || israelDay() }],
       remarks: tx?.dedication || undefined,
     };
     const r = await fetch(`${GI.base()}/documents`, {
@@ -247,7 +248,7 @@ export async function syncProvider(key, user) {
         }
         const res = await recordTransaction({
           donor_id: donorId, source: key, external_id: `SIM-T-${Date.now()}-${i}`, kind: isKeva ? 'keva' : 'one_time',
-          method: 'credit', amount, currency: overseas ? 'USD' : 'ILS', date: new Date().toISOString().slice(0, 10), status: 'paid',
+          method: 'credit', amount, currency: overseas ? 'USD' : 'ILS', date: israelDay(), status: 'paid',
           institution_id: institutions[i % Math.max(institutions.length, 1)]?.id || null, standing_order_id: soId,
           card_last4: String(1000 + Math.floor(Math.random() * 8999)),
         }, user, { isDemo: true });

@@ -1,4 +1,5 @@
 import { query, one, many, insert, update } from '../lib/db.js';
+import { israelDay, israelDayOfMonth } from '../lib/dates.js';
 import { HttpError } from '../lib/router.js';
 import { requirePerm, requireUser } from '../auth.js';
 import { can } from '../roles.js';
@@ -247,7 +248,7 @@ export function registerFinanceRoutes(r) {
     const needsApproval = ['cash', 'check'].includes(b.method) && !can(ctx.user, 'tx.approve');
     const { row } = await recordTransaction({
       donor_id: Number(b.donor_id), source: 'manual', kind, method: b.method || 'cash', amount, currency: b.currency || 'ILS',
-      date: b.date || new Date().toISOString().slice(0, 10), status: b.status || (b.method === 'check' && b.check_due_date && b.check_due_date > new Date().toISOString().slice(0, 10) ? 'pending' : 'paid'),
+      date: b.date || israelDay(), status: b.status || (b.method === 'check' && b.check_due_date && b.check_due_date > israelDay() ? 'pending' : 'paid'),
       institution_id: b.institution_id ? Number(b.institution_id) : null, purpose_id: b.purpose_id ? Number(b.purpose_id) : null,
       campaign_id: b.campaign_id ? Number(b.campaign_id) : null, recruiter_user_id: b.recruiter_user_id ? Number(b.recruiter_user_id) : (ctx.user.active_role === 'recruiter' ? ctx.user.id : null),
       check_number: b.check_number || null, check_bank: b.check_bank || null, check_due_date: b.check_due_date || null,
@@ -275,8 +276,8 @@ export function registerFinanceRoutes(r) {
     if (b.recurring) {
       const so = await insert('standing_orders', {
         donor_id: Number(b.donor_id), source: provider, external_id: `SBX-K-${Date.now()}`, type: 'credit', amount, currency: b.currency || 'ILS',
-        day_of_month: Number(b.day_of_month) || new Date().getDate(), start_date: new Date().toISOString().slice(0, 10), months_total: b.months_total ? Number(b.months_total) : null,
-        status: 'active', next_charge_date: b.start_date || new Date().toISOString().slice(0, 10), institution_id: b.institution_id || null, campaign_id: b.campaign_id || null,
+        day_of_month: Number(b.day_of_month) || israelDayOfMonth(), start_date: israelDay(), months_total: b.months_total ? Number(b.months_total) : null,
+        status: 'active', next_charge_date: b.start_date || israelDay(), institution_id: b.institution_id || null, campaign_id: b.campaign_id || null,
         card_last4: '0000', token_ref: 'SANDBOX-TOKEN', charge_mode: b.charge_mode === 'manual' ? 'manual' : 'auto', card_exp: /^(0[1-9]|1[0-2])\/\d{2}$/.test(String(b.card_exp || '')) ? b.card_exp : null,
         notes: b.charge_mode === 'manual' ? 'כרטיס שמור לחיוב חודשי בהחלטה (הדמיה)' : 'הוקם מתוך המערכת (הדמיה)',
       });
@@ -355,7 +356,7 @@ export function registerFinanceRoutes(r) {
     if (!b.donor_id || !Number(b.amount)) throw new HttpError(400, 'תורם וסכום הם חובה');
     const so = await insert('standing_orders', {
       donor_id: Number(b.donor_id), source: b.source || (b.type === 'bank' ? 'masav' : 'manual'), type: b.type || 'bank', amount: Number(b.amount),
-      currency: b.currency || 'ILS', day_of_month: Number(b.day_of_month) || 10, start_date: b.start_date || new Date().toISOString().slice(0, 10),
+      currency: b.currency || 'ILS', day_of_month: Number(b.day_of_month) || 10, start_date: b.start_date || israelDay(),
       end_date: b.end_date || null, months_total: b.months_total ? Number(b.months_total) : null, status: 'active',
       next_charge_date: b.start_date || null, institution_id: b.institution_id ? Number(b.institution_id) : null,
       purpose_id: b.purpose_id ? Number(b.purpose_id) : null, campaign_id: b.campaign_id ? Number(b.campaign_id) : null,
@@ -442,7 +443,7 @@ export function registerFinanceRoutes(r) {
   r.post('/api/masav/file', async (ctx) => {
     requirePerm(ctx, 'keva.actions');
     const day = Number(ctx.body.day) || 10;
-    const chargeDate = ctx.body.charge_date || new Date().toISOString().slice(0, 10);
+    const chargeDate = ctx.body.charge_date || israelDay();
     const rows = (await masavRows(day)).filter((x) => parseBankRef(x.token_ref));
     const cfg = (await one("SELECT config FROM providers WHERE key = 'masav'"))?.config || {};
     const pad = (s, n, ch = ' ', left = false) => { s = String(s ?? '').slice(0, n); return left ? s.padStart(n, ch) : s.padEnd(n, ch); };
@@ -502,7 +503,7 @@ export function registerFinanceRoutes(r) {
     if (b.method === 'keva_bank') {
       const so = await insert('standing_orders', {
         donor_id: donorId, source: 'masav', type: 'bank', amount, currency: 'ILS', day_of_month: Number(b.day_of_month) || 10,
-        start_date: new Date().toISOString().slice(0, 10), status: 'active', bank_code: b.bank_code, branch_code: b.branch_code,
+        start_date: israelDay(), status: 'active', bank_code: b.bank_code, branch_code: b.branch_code,
         account_masked: b.account_number ? `****${String(b.account_number).slice(-4)}` : null,
         token_ref: bankRef(b.bank_code, b.branch_code, b.account_number),
         recruiter_user_id: ctx.user.id, notes: `נחתם בשטח${b.signature_data ? ' (חתימה דיגיטלית מצורפת)' : ''}`,

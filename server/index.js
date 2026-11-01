@@ -1,6 +1,7 @@
 // שרת מוסדות אור יקר צפת: אתר ציבורי + מערכת ניהול תורמים וגיוס משאבים.
 // ללא תלויות זמן ריצה מלבד pg (ב-Replit). הצד הלקוח נבנה מראש לתיקיית public.
 import http from 'node:http';
+import { israelDay, israelHour } from './lib/dates.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +18,7 @@ import { registerSettlementRoutes } from './routes/settlements.js';
 import { registerExtraRoutes } from './routes/extra.js';
 import { registerCommunityRoutes } from './routes/community.js';
 import { registerNedarimRoutes, ensureRefundPolicy } from './routes/nedarim.js';
-import { registerMonthlyRoutes } from './routes/monthly.js';
+import { registerMonthlyRoutes, sweepInterruptedBatches } from './routes/monthly.js';
 import { ensureDefaults } from './settings.js';
 import { runDailyAutomations } from './automations.js';
 import { envInfo, isPublished } from './env.js';
@@ -201,6 +202,11 @@ const server = http.createServer(async (req, res) => {
     }
     ctx.params = match.params;
     await loadSession(ctx);
+    // קוד זמני: עד שהמשתמש מחליף אותו, השרת פותח רק את מה שנדרש להחלפה (לא רק חסימה בממשק)
+    if (ctx.user?.must_change_pin && !ctx.user.impersonator_id
+      && !/^\/api\/(auth\/(me|profile|logout)|live|public\/|health|diag\/client-error)/.test(pathname)) {
+      throw new HttpError(403, 'יש להחליף את הקוד הזמני לפני השימוש במערכת', { code: 'must_change_pin' });
+    }
     for (const h of match.route.handlers) await h(ctx);
     if (!res.headersSent) ctx.json(204, {});
     // מונה שינויים: כל שינוי מוצלח מעלה גרסה, והמסכים הפתוחים מתרעננים לבד
@@ -257,6 +263,7 @@ async function initDb() {
   await seedInstitutions();
   await ensureRefundPolicy();
   await bootstrapOwner();
+  await sweepInterruptedBatches().catch((e) => console.error('[monthly-charges] sweep', e.message));
 }
 
 async function start() {
@@ -277,8 +284,8 @@ async function start() {
   // אוטומציות יומיות (בדיקה כל שעה, ריצה פעם ביום)
   let lastRun = '';
   setInterval(async () => {
-    const day = new Date().toISOString().slice(0, 10);
-    if (day === lastRun || new Date().getHours() < 7) return;
+    const day = israelDay();
+    if (day === lastRun || israelHour() < 7) return;
     lastRun = day;
     try { console.log('[automations]', await runDailyAutomations()); } catch (e) { console.error('[automations]', e.message); }
   }, 60 * 60 * 1000);

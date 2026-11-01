@@ -130,10 +130,11 @@ function ForcePin({ onDone }) {
   const [pin, setPin] = useState('');
   const [pin2, setPin2] = useState('');
   return (
-    <Modal title="יש לבחור קוד אישי חדש" onClose={() => {}} size="narrow" footer={
+    <Modal title="יש לבחור קוד אישי חדש" onClose={() => {}} size="narrow" footer={<>
+      <button className="btn" onClick={async () => { await api('/auth/logout', { method: 'POST' }).catch(() => {}); window.location.href = '/login'; }}>יציאה</button>
       <button className="btn primary" disabled={pin.length < 4 || pin !== pin2} onClick={async () => {
         try { await api('/auth/profile', { method: 'POST', body: { pin } }); toast('הקוד עודכן', 'ok'); onDone(); } catch (e) { toast(e.message, 'error'); }
-      }}>שמירה</button>}>
+      }}>שמירה</button></>}>
       <p className="muted">זו כניסה ראשונה או שהקוד אופס. בחרו קוד של 4-8 ספרות.</p>
       <div className="stack">
         <Field label="קוד חדש"><input className="input" type="password" inputMode="numeric" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} /></Field>
@@ -365,15 +366,18 @@ export function AppShell({ site }) {
   const [liveTick, setLiveTick] = useState(0);
   const loadMe = () => api('/auth/me').then((d) => { if (!d.user) { navigate('/login', { replace: true }); return; } setPerms(d.perms); setMe(d); });
   useEffect(() => { loadMe(); }, []);
-  useEffect(() => { if (me?.user) api('/meta').then(setMeta).catch(() => {}); }, [me?.user?.active_role]);
+  useEffect(() => { if (me?.user && !(me.user.must_change_pin && !me.impersonator)) api('/meta').then(setMeta).catch(() => {}); }, [me?.user?.active_role, me?.user?.must_change_pin]);
   useEffect(() => {
-    if (!me?.user) return;
+    if (!me?.user || (me.user.must_change_pin && !me.impersonator)) return;
     Promise.all([api('/dashboard').catch(() => ({})), api('/inbox').catch(() => ({}))]).then(([d, ib]) => setCounts({ tasks: d.tasks?.c, boxes: d.boxesDue?.c, aid: d.aidOpen?.c, contact: d.contactOpen?.c, spiritual: d.spiritualPending?.c, inbox: ib.unread }));
   }, [me?.user?.active_role, path, liveTick]);
   useEffect(() => { const on = () => setLiveTick((t) => t + 1); window.addEventListener('oy:refresh', on); return () => window.removeEventListener('oy:refresh', on); }, []);
   useEffect(() => setSideOpen(false), [path]);
   useEffect(() => { try { localStorage.setItem('oy_demo', demoMode); } catch { /* */ } }, [demoMode]);
-  if (!me?.user || !meta) return <Spinner />;
+  if (!me?.user) return <Spinner />;
+  // קוד זמני: לפני כל דבר אחר חייבים להחליף אותו (השרת חוסם את שאר המערכת עד אז)
+  if (me.user.must_change_pin && !me.impersonator) return <ForcePin onDone={() => { window.location.href = '/app'; }} />;
+  if (!meta) return <Spinner />;
   const user = me.user;
   const switchRole = async (role) => { await api('/auth/role', { method: 'POST', body: { role } }); window.location.href = '/app'; };
   let Page = null; let params = {};
@@ -425,7 +429,6 @@ export function AppShell({ site }) {
       </nav>
       <QuickActions user={user} meta={meta} />
       <LiveUpdates />
-      {user.must_change_pin && !me.impersonator && <ForcePin onDone={loadMe} />}
       {!user.must_change_pin && !me.impersonator && <InstallPrompt user={user} />}
     </AppCtx.Provider>
   );

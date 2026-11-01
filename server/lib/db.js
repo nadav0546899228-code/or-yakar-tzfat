@@ -21,6 +21,8 @@ async function init() {
       max: 10,
       ssl: /localhost|127\.0\.0\.1|sslmode=disable/.test(url) ? false : { rejectUnauthorized: false },
     });
+    // "היום" ו"החודש" במסד (CURRENT_DATE, date_trunc) לפי שעון ישראל ולא UTC
+    pool.on('connect', (c) => { c.query("SET TIME ZONE 'Asia/Jerusalem'").catch(() => {}); });
     impl = { query: (sql, params) => pool.query(sql, params), kind: 'pg' };
   } catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e;

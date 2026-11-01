@@ -144,7 +144,9 @@ export function datetime(v) {
   if (!v) return '';
   return new Date(v).toLocaleString('he-IL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
-export function today() { return new Date().toISOString().slice(0, 10); }
+// התאריך של היום בישראל (toISOString מחזיר UTC - אתמול בין חצות לשלוש לפנות בוקר)
+const IL_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' });
+export function today() { return IL_DAY.format(new Date()); }
 export function phoneHref(p) { return `tel:${String(p || '').replace(/[^\d+]/g, '')}`; }
 export function waHref(p, text = '') {
   let d = String(p || '').replace(/\D/g, '');

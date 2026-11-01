@@ -1,4 +1,5 @@
 import { RESOURCES, writableFields, publicMeta } from '../resources.js';
+import { israelDay } from '../lib/dates.js';
 import { query, one, many, insert, update } from '../lib/db.js';
 import { HttpError } from '../lib/router.js';
 import { requirePerm } from '../auth.js';
@@ -60,7 +61,7 @@ export function cleanBody(res, body, { creating }) {
   for (const f of res.fields) {
     let v = coerce(f, body[f.key]);
     if (creating && (v === undefined || v === null) && f.default !== undefined) {
-      v = f.default === 'today' ? new Date().toISOString().slice(0, 10) : f.default;
+      v = f.default === 'today' ? israelDay() : f.default;
     }
     if (v !== undefined) out[f.key] = v;
     if (creating && f.required && (out[f.key] === undefined || out[f.key] === null || out[f.key] === '')) {
