@@ -29,7 +29,7 @@ async function init() {
         return await c.query(sql, params);
       } finally { c.release(); }
     };
-    impl = { query: run, kind: 'pg' };
+    impl = { query: run, kind: 'pg', pool };
   } catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e;
     const { DevClient } = await import('./devpg.js');
@@ -72,20 +72,62 @@ export async function migrate() {
   }
 }
 
-// בניית INSERT/UPDATE בטוחים מתוך אובייקט ושמות עמודות מותרות
-export async function insert(table, data, allowed) {
+// בניית INSERT/UPDATE בטוחים מתוך אובייקט ושמות עמודות מותרות (oneFn - לביצוע גם בתוך טרנזקציה)
+function insertWith(oneFn, table, data, allowed) {
   const keys = Object.keys(data).filter((k) => !allowed || allowed.includes(k));
   const cols = keys.map((k) => `"${k}"`).join(', ');
   const vals = keys.map((_, i) => `$${i + 1}`).join(', ');
   const sql = keys.length
     ? `INSERT INTO ${table} (${cols}) VALUES (${vals}) RETURNING *`
     : `INSERT INTO ${table} DEFAULT VALUES RETURNING *`;
-  return one(sql, keys.map((k) => data[k]));
+  return oneFn(sql, keys.map((k) => data[k]));
+}
+
+function updateWith(oneFn, table, id, data, allowed) {
+  const keys = Object.keys(data).filter((k) => k !== 'id' && (!allowed || allowed.includes(k)));
+  if (!keys.length) return oneFn(`SELECT * FROM ${table} WHERE id = $1`, [id]);
+  const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
+  return oneFn(`UPDATE ${table} SET ${sets} WHERE id = $${keys.length + 1} RETURNING *`, [...keys.map((k) => data[k]), id]);
+}
+
+export async function insert(table, data, allowed) {
+  return insertWith(one, table, data, allowed);
 }
 
 export async function update(table, id, data, allowed) {
-  const keys = Object.keys(data).filter((k) => k !== 'id' && (!allowed || allowed.includes(k)));
-  if (!keys.length) return one(`SELECT * FROM ${table} WHERE id = $1`, [id]);
-  const sets = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
-  return one(`UPDATE ${table} SET ${sets} WHERE id = $${keys.length + 1} RETURNING *`, [...keys.map((k) => data[k]), id]);
+  return updateWith(one, table, id, data, allowed);
+}
+
+// טרנזקציה: כל השאילתות בתוך fn רצות על חיבור ייעודי אחד - הכול נשמר יחד או שום דבר (ROLLBACK בשגיאה).
+// fn מקבלת { query, one, many, insert, update } הקשורים לחיבור הזה. אסור לקרוא בתוכה לפונקציות המודול הגלובליות (חיבור אחר).
+export async function tx(fn) {
+  const db = await init();
+  if (db.kind !== 'pg') {
+    // לקוח הבדיקות המקומי משותף לכל הבקשות - אין טרנזקציה אמיתית, רק ריצה רציפה
+    return fn({ query, one, many, insert, update });
+  }
+  const c = await db.pool.connect();
+  let broken = false;
+  try {
+    if (!c.ilTz) { await c.query("SET TIME ZONE 'Asia/Jerusalem'"); c.ilTz = true; }
+    const q = (sql, params = []) => c.query(sql, params);
+    const o = async (sql, params = []) => (await q(sql, params)).rows[0] || null;
+    const m = async (sql, params = []) => (await q(sql, params)).rows;
+    await c.query('BEGIN');
+    try {
+      const result = await fn({
+        query: q, one: o, many: m,
+        insert: (table, data, allowed) => insertWith(o, table, data, allowed),
+        update: (table, id, data, allowed) => updateWith(o, table, id, data, allowed),
+      });
+      await c.query('COMMIT');
+      return result;
+    } catch (e) {
+      try { await c.query('ROLLBACK'); } catch { broken = true; }
+      throw e;
+    }
+  } finally {
+    // חיבור שנכשל גם ב-ROLLBACK לא חוזר למאגר
+    c.release(broken ? true : undefined);
+  }
 }

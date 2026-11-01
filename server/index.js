@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Router, HttpError, makeContext, readBody } from './lib/router.js';
 import { migrate, one, query, many } from './lib/db.js';
 import { setSecretKey, hashPin, normalizePhone, randomToken, bankRef, parseBankRef } from './lib/security.js';
-import { loadSession, registerAuthRoutes } from './auth.js';
+import { loadSession, registerAuthRoutes, purgeExpiredSessions, sessionStillValid } from './auth.js';
 import { registerCrudRoutes } from './routes/crud.js';
 import { registerFinanceRoutes } from './routes/finance.js';
 import { registerSystemRoutes, publicSitePayload } from './routes/system.js';
@@ -41,7 +41,72 @@ registerDiagRoutes(router);
 
 // ---------- עדכון חי: גרסת נתונים + התראות חדשות ----------
 let liveVersion = Date.now();
-export function bumpLive() { liveVersion += 1; }
+export function bumpLive() { liveVersion += 1; scheduleBroadcast(); }
+
+// ---------- זרם עדכונים חי (SSE): השרת דוחף "משהו השתנה" במקום שכל מסך ישאל כל כמה שניות ----------
+// הערה: ב-Replit Autoscale ייתכנו כמה מופעים - שינוי במופע אחר לא יגיע בזרם, ולכן הצד הלקוח שומר גם בדיקה איטית
+const SSE_MAX_TOTAL = 300;
+const SSE_MAX_PER_USER = 8;
+const sseClients = new Set(); // { res, userId, tokenHash }
+let broadcastTimer = null;
+const lastNotificationId = async () => (await one('SELECT COALESCE(MAX(id),0)::int AS m FROM notifications')).m;
+function sseWrite(c, chunk) {
+  try { c.res.write(chunk); } catch { dropClient(c); }
+}
+function dropClient(c) {
+  if (!sseClients.delete(c)) return;
+  try { c.res.end(); } catch { /* כבר נסגר */ }
+}
+// ריכוז שינויים: כמה כתיבות ברצף = הודעה אחת אחרי 300ms; שאילתה אחת לכל שידור ולא לכל לקוח
+function scheduleBroadcast() {
+  if (!sseClients.size || broadcastTimer) return;
+  broadcastTimer = setTimeout(async () => {
+    broadcastTimer = null;
+    if (!sseClients.size) return;
+    let last = 0;
+    try { last = await lastNotificationId(); } catch { /* נשלח בלי מזהה התראה */ }
+    const msg = `data: ${JSON.stringify({ v: liveVersion, last })}\n\n`;
+    for (const c of sseClients) sseWrite(c, msg);
+  }, 300);
+}
+// שמירת חיבור פתוח דרך פרוקסי ומאזני עומסים
+setInterval(() => { for (const c of sseClients) sseWrite(c, ': ping\n\n'); }, 25 * 1000).unref();
+// אחת לדקה: סגירת זרמים של חיבור שפג / נמחק (יציאה, החלפת קוד) או של משתמש שהושבת
+setInterval(async () => {
+  const byToken = new Map();
+  for (const c of sseClients) byToken.set(c.tokenHash, [...(byToken.get(c.tokenHash) || []), c]);
+  for (const [tokenHash, list] of byToken) {
+    let ok = true;
+    try { ok = await sessionStillValid(tokenHash); } catch { continue; }
+    if (!ok) list.forEach(dropClient);
+  }
+}, 60 * 1000).unref();
+
+router.get('/api/live/stream', async (ctx) => {
+  if (!ctx.user || !ctx.session) throw new HttpError(401, 'נדרשת כניסה למערכת');
+  const userId = ctx.user.id;
+  let mine = 0;
+  for (const c of sseClients) if (c.userId === userId) mine += 1;
+  if (sseClients.size >= SSE_MAX_TOTAL || mine >= SSE_MAX_PER_USER) throw new HttpError(503, 'יותר מדי חיבורים פתוחים לעדכון חי', { retry: true });
+  const last = await lastNotificationId();
+  const { req, res } = ctx;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  req.socket.setTimeout(0);
+  req.socket.setNoDelay(true);
+  const client = { res, userId, tokenHash: ctx.session.token_hash };
+  sseClients.add(client);
+  // retry: הדפדפן מתחבר מחדש אחרי 5 שניות אם הזרם נפל
+  res.write(`retry: 5000\ndata: ${JSON.stringify({ v: liveVersion, last })}\n\n`);
+  const cleanup = () => dropClient(client);
+  req.on('close', cleanup);
+  res.on('close', cleanup);
+  res.on('error', cleanup);
+});
 router.get('/api/live', async (ctx) => {
   if (!ctx.user) { ctx.json(200, { v: liveVersion, notifs: [] }); return; }
   const since = Number(ctx.query?.since || 0);
@@ -286,6 +351,8 @@ async function start() {
   // אוטומציות יומיות (בדיקה כל שעה, ריצה פעם ביום)
   let lastRun = '';
   setInterval(async () => {
+    // ניקוי חיבורים שפגו - כל שעה
+    purgeExpiredSessions().then((n) => { if (n) console.log(`[sessions] נמחקו ${n} חיבורים שפגו`); }).catch((e) => console.error('[sessions]', e.message));
     const day = israelDay();
     if (day === lastRun || israelHour() < 7) return;
     lastRun = day;

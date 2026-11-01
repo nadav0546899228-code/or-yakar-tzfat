@@ -1,4 +1,4 @@
-import { query, one, many, insert, update } from '../lib/db.js';
+import { query, one, many, insert, update, tx } from '../lib/db.js';
 import { israelDay, israelDayOfMonth, israelMonth } from '../lib/dates.js';
 import { isSandbox } from '../env.js';
 import { getSetting } from '../settings.js';
@@ -37,6 +37,12 @@ function demoClause(ctx, alias) {
   if (ctx.query.demo === 'hide') return `${alias}.is_demo = FALSE`;
   if (ctx.query.demo === 'only') return `${alias}.is_demo = TRUE`;
   return null;
+}
+
+// עימוד רשימות ארוכות: offset שלם אי-שלילי (ברירת מחדל 0)
+function pageOffset(ctx) {
+  const n = Math.floor(Number(ctx.query.offset));
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 10_000_000) : 0;
 }
 
 const DONOR_LABEL = "TRIM(COALESCE(d.title || ' ','') || COALESCE(d.first_name,'') || ' ' || COALESCE(d.last_name,''))";
@@ -97,6 +103,23 @@ export function registerFinanceRoutes(r) {
     ctx.json(200, out);
   });
 
+  // ---------- מונים קלים לתפריט (במקום לוח בקרה מלא + תיבת הודעות) ----------
+  // אותן שאילתות בדיוק כמו ב-/api/dashboard וב-/api/inbox (גם שם מונים אלה אינם מסוננים לפי demo)
+  r.get('/api/counts', async (ctx) => {
+    requirePerm(ctx, 'staff');
+    const c = (row) => row?.c ?? 0;
+    const [tasks, boxes, aid, contact, spiritual, inbox] = await Promise.all([
+      one(`SELECT COUNT(*)::int AS c FROM call_tasks WHERE status IN ('open','callback','no_answer')
+        ${ctx.user.active_role === 'call_agent' ? `AND (assigned_user_id = ${Number(ctx.user.id)} OR assigned_user_id IS NULL)` : ''}`),
+      one('SELECT COUNT(*)::int AS c FROM tzedaka_boxes WHERE active = TRUE AND (last_collected_at IS NULL OR last_collected_at + collection_interval_days <= CURRENT_DATE)'),
+      one("SELECT COUNT(*)::int AS c FROM aid_requests WHERE status IN ('new','review')"),
+      one('SELECT COUNT(*)::int AS c FROM contact_messages WHERE handled = FALSE'),
+      one("SELECT COUNT(*)::int AS c FROM spiritual_orders WHERE status = 'pending'"),
+      one('SELECT COUNT(*)::int AS c FROM staff_messages WHERE to_user = $1 AND read_at IS NULL AND NOT deleted_by_recipient', [ctx.user.id]),
+    ]);
+    ctx.json(200, { tasks: c(tasks), boxes: c(boxes), aid: c(aid), contact: c(contact), spiritual: c(spiritual), inbox: c(inbox) });
+  });
+
   // ---------- כרטיס תורם 360 ----------
   r.get('/api/donors/:id/full', async (ctx) => {
     requirePerm(ctx, 'donors.read');
@@ -135,16 +158,23 @@ export function registerFinanceRoutes(r) {
     const keep = Number(ctx.body.keep_id);
     const remove = Number(ctx.body.remove_id);
     if (!keep || !remove || keep === remove) throw new HttpError(400, 'יש לבחור שני תורמים שונים');
-    const tables = ['transactions', 'standing_orders', 'documents', 'donor_dates', 'interactions', 'pledges', 'call_tasks', 'spiritual_orders', 'event_guests', 'messages_out'];
-    for (const t of tables) await query(`UPDATE ${t} SET donor_id = $1 WHERE donor_id = $2`, [keep, remove]);
-    await query('UPDATE donor_links SET donor_id = $1 WHERE donor_id = $2', [keep, remove]);
-    const a = await one('SELECT * FROM donors WHERE id = $1', [keep]);
-    const b = await one('SELECT * FROM donors WHERE id = $1', [remove]);
-    const fill = {};
-    for (const k of ['phone', 'phone2', 'email', 'id_number', 'address', 'city', 'spouse_name', 'father_name', 'mother_name']) if (!a[k] && b[k]) fill[k] = b[k];
-    fill.tags = [...new Set([...(a.tags || []), ...(b.tags || [])])];
-    await update('donors', keep, fill, Object.keys(fill));
-    await query('DELETE FROM donors WHERE id = $1', [remove]);
+    // כל הטבלאות שמפנות לתורם (donor_id) עוברות לתורם הראשי לפני המחיקה - אחרת RESTRICT חוסם, והכול בטרנזקציה אחת
+    const tables = ['transactions', 'standing_orders', 'documents', 'charge_batch_items', 'donor_dates', 'interactions', 'pledges', 'call_tasks',
+      'spiritual_orders', 'event_guests', 'messages_out', 'donor_links'];
+    const b = await tx(async (t) => {
+      const a = await t.one('SELECT * FROM donors WHERE id = $1 FOR UPDATE', [keep]);
+      const rm = await t.one('SELECT * FROM donors WHERE id = $1 FOR UPDATE', [remove]);
+      if (!a || !rm) throw new HttpError(404, 'תורם לא נמצא');
+      for (const tb of tables) await t.query(`UPDATE ${tb} SET donor_id = $1 WHERE donor_id = $2`, [keep, remove]);
+      // חיבורי משתמשי תורם (כניסת תורמים) - גם הם עוברים
+      await t.query('UPDATE sessions SET donor_id = $1 WHERE donor_id = $2', [keep, remove]);
+      const fill = {};
+      for (const k of ['phone', 'phone2', 'email', 'id_number', 'address', 'city', 'spouse_name', 'father_name', 'mother_name']) if (!a[k] && rm[k]) fill[k] = rm[k];
+      fill.tags = [...new Set([...(a.tags || []), ...(rm.tags || [])])];
+      await t.query('DELETE FROM donors WHERE id = $1', [remove]);
+      await t.update('donors', keep, fill, Object.keys(fill));
+      return rm;
+    });
     await audit(ctx.user, 'donor_merge', 'donor', keep, { removed: remove, removedName: `${b.first_name} ${b.last_name}` });
     ctx.json(200, { ok: true });
   });
@@ -352,15 +382,17 @@ export function registerFinanceRoutes(r) {
     if (dc) conds.push(dc);
     const w = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     const R = await fxRates();
+    const offset = pageOffset(ctx);
     const rows = await many(`SELECT s.*, ${DONOR_LABEL} AS donor_name, d.phone AS donor_phone, i.name AS institution_name,
       (SELECT COUNT(*)::int FROM transactions t WHERE t.standing_order_id = s.id AND t.status = 'failed') AS failed_count
       FROM standing_orders s LEFT JOIN donors d ON d.id = s.donor_id LEFT JOIN institutions i ON i.id = s.institution_id
-      ${w} ORDER BY CASE s.status WHEN 'failed' THEN 0 WHEN 'active' THEN 1 WHEN 'frozen' THEN 2 ELSE 3 END, s.amount DESC LIMIT 1000`, params);
-    const summary = await one(`SELECT COUNT(*) FILTER (WHERE s.status='active')::int AS active, COUNT(*) FILTER (WHERE s.status='frozen')::int AS frozen,
+      ${w} ORDER BY CASE s.status WHEN 'failed' THEN 0 WHEN 'active' THEN 1 WHEN 'frozen' THEN 2 ELSE 3 END, s.amount DESC, s.id DESC LIMIT 1000 OFFSET ${offset}`, params);
+    const summary = await one(`SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE s.status='active')::int AS active, COUNT(*) FILTER (WHERE s.status='frozen')::int AS frozen,
       COUNT(*) FILTER (WHERE s.status='failed')::int AS failed,
       COALESCE(SUM(s.amount * CASE s.currency WHEN 'USD' THEN ${R.USD} WHEN 'EUR' THEN ${R.EUR} WHEN 'GBP' THEN ${R.GBP} ELSE 1 END) FILTER (WHERE s.status='active'),0) AS monthly
       FROM standing_orders s LEFT JOIN donors d ON d.id = s.donor_id ${w}`, params);
-    ctx.json(200, { rows, summary });
+    const { total, ...sum } = summary;
+    ctx.json(200, { rows, summary: sum, total, offset, limit: 1000 });
   });
 
   r.post('/api/keva', async (ctx) => {
@@ -400,9 +432,13 @@ export function registerFinanceRoutes(r) {
     const dc = demoClause(ctx, 'dc');
     if (dc) conds.push(dc);
     const w = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-    const rows = await many(`SELECT dc.*, ${DONOR_LABEL} AS donor_name, d.email AS donor_email, d.phone AS donor_phone
-      FROM documents dc LEFT JOIN donors d ON d.id = dc.donor_id ${w} ORDER BY dc.issued_at DESC LIMIT 1000`, params);
-    ctx.json(200, { rows });
+    const offset = pageOffset(ctx);
+    const [rows, cnt] = await Promise.all([
+      many(`SELECT dc.*, ${DONOR_LABEL} AS donor_name, d.email AS donor_email, d.phone AS donor_phone
+        FROM documents dc LEFT JOIN donors d ON d.id = dc.donor_id ${w} ORDER BY dc.issued_at DESC, dc.id DESC LIMIT 1000 OFFSET ${offset}`, params),
+      one(`SELECT COUNT(*)::int AS c FROM documents dc LEFT JOIN donors d ON d.id = dc.donor_id ${w}`, params),
+    ]);
+    ctx.json(200, { rows, total: cnt.c, offset, limit: 1000 });
   });
 
   r.post('/api/documents/:id/cancel', async (ctx) => {

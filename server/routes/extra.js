@@ -66,9 +66,23 @@ export function registerExtraRoutes(r) {
       const reason = String(ctx.body.reason || '').trim();
       if (!reason) throw new HttpError(400, 'יש לציין סיבת מחיקה');
       const rows = await many(`SELECT id FROM ${res.table} WHERE id = ANY($1::int[])`, [ids]);
-      await query(`DELETE FROM ${res.table} WHERE id = ANY($1::int[])`, [rows.map((x) => x.id)]);
-      await audit(ctx.user, 'delete', ctx.params.res, null, { count: rows.length, ids: rows.map((x) => x.id), reason });
-      ctx.json(200, { ok: true, count: rows.length, message: `נמחקו ${rows.length} רשומות` });
+      // מחיקה שורה-שורה: רשומה עם היסטוריה (מפתח זר RESTRICT) נחסמת לבד ולא מפילה את כל השאר
+      const deleted = [];
+      const blocked = [];
+      for (const { id } of rows) {
+        try {
+          await query(`DELETE FROM ${res.table} WHERE id = $1`, [id]);
+          deleted.push(id);
+        } catch (e) {
+          if (e.code !== '23503') throw e;
+          blocked.push(id);
+        }
+      }
+      if (deleted.length) await audit(ctx.user, 'delete', ctx.params.res, null, { count: deleted.length, ids: deleted, reason, blocked: blocked.length ? blocked : undefined });
+      const message = blocked.length
+        ? `נמחקו ${deleted.length}, ${blocked.length} לא נמחקו כי יש להם היסטוריה (תרומות, קבלות, שיחות וכו׳). אפשר לסמן אותם כלא פעילים`
+        : `נמחקו ${deleted.length} רשומות`;
+      ctx.json(200, { ok: true, count: deleted.length, blocked, message });
       return;
     }
     if (action === 'set') {

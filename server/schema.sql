@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS donor_dates (
 
 CREATE TABLE IF NOT EXISTS interactions (
   id SERIAL PRIMARY KEY,
-  donor_id INTEGER REFERENCES donors(id) ON DELETE CASCADE,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE RESTRICT,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   kind TEXT NOT NULL DEFAULT 'call',
   summary TEXT,
@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS interactions (
 
 CREATE TABLE IF NOT EXISTS standing_orders (
   id SERIAL PRIMARY KEY,
-  donor_id INTEGER REFERENCES donors(id) ON DELETE SET NULL,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE RESTRICT,
   source TEXT NOT NULL DEFAULT 'manual',
   external_id TEXT,
   type TEXT NOT NULL DEFAULT 'credit',
@@ -219,7 +219,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS so_source_ext_idx ON standing_orders (source, 
 
 CREATE TABLE IF NOT EXISTS documents (
   id SERIAL PRIMARY KEY,
-  donor_id INTEGER REFERENCES donors(id) ON DELETE SET NULL,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE RESTRICT,
   provider TEXT NOT NULL DEFAULT 'manual',
   type TEXT NOT NULL DEFAULT 'receipt46',
   number TEXT,
@@ -244,7 +244,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS doc_provider_ext_idx ON documents (provider, e
 CREATE TABLE IF NOT EXISTS transactions (
   id SERIAL PRIMARY KEY,
   serial TEXT,
-  donor_id INTEGER REFERENCES donors(id) ON DELETE SET NULL,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE RESTRICT,
   source TEXT NOT NULL DEFAULT 'manual',
   external_id TEXT,
   kind TEXT NOT NULL DEFAULT 'one_time',
@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   institution_id INTEGER REFERENCES institutions(id) ON DELETE SET NULL,
   purpose_id INTEGER REFERENCES purposes(id) ON DELETE SET NULL,
   campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,
-  standing_order_id INTEGER REFERENCES standing_orders(id) ON DELETE SET NULL,
+  standing_order_id INTEGER REFERENCES standing_orders(id) ON DELETE RESTRICT,
   recruiter_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
   document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
   check_number TEXT,
@@ -283,7 +283,7 @@ CREATE INDEX IF NOT EXISTS tx_donor_idx ON transactions (donor_id);
 
 CREATE TABLE IF NOT EXISTS pledges (
   id SERIAL PRIMARY KEY,
-  donor_id INTEGER REFERENCES donors(id) ON DELETE CASCADE,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE RESTRICT,
   amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'ILS',
   reason TEXT,
@@ -328,7 +328,7 @@ CREATE TABLE IF NOT EXISTS tzedaka_boxes (
 
 CREATE TABLE IF NOT EXISTS box_collections (
   id SERIAL PRIMARY KEY,
-  box_id INTEGER REFERENCES tzedaka_boxes(id) ON DELETE CASCADE,
+  box_id INTEGER REFERENCES tzedaka_boxes(id) ON DELETE RESTRICT,
   collected_at DATE NOT NULL DEFAULT CURRENT_DATE,
   amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   collector_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -339,7 +339,7 @@ CREATE TABLE IF NOT EXISTS box_collections (
 
 CREATE TABLE IF NOT EXISTS spiritual_orders (
   id SERIAL PRIMARY KEY,
-  donor_id INTEGER REFERENCES donors(id) ON DELETE SET NULL,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE RESTRICT,
   kind TEXT NOT NULL DEFAULT 'prayer',
   name_for TEXT NOT NULL,
   mother_name TEXT,
@@ -623,8 +623,8 @@ CREATE TABLE IF NOT EXISTS charge_batch_items (
   id SERIAL PRIMARY KEY,
   batch_id INTEGER NOT NULL REFERENCES charge_batches(id) ON DELETE CASCADE,
   batch_month TEXT NOT NULL,
-  standing_order_id INTEGER REFERENCES standing_orders(id) ON DELETE CASCADE,
-  donor_id INTEGER REFERENCES donors(id) ON DELETE SET NULL,
+  standing_order_id INTEGER REFERENCES standing_orders(id) ON DELETE RESTRICT,
+  donor_id INTEGER REFERENCES donors(id) ON DELETE RESTRICT,
   amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'ILS',
   status TEXT NOT NULL DEFAULT 'processing',
@@ -668,3 +668,45 @@ CREATE INDEX IF NOT EXISTS call_tasks_donor_status_idx ON call_tasks (donor_id, 
 CREATE INDEX IF NOT EXISTS donors_phone_idx ON donors (phone);
 CREATE INDEX IF NOT EXISTS donors_phone2_idx ON donors (phone2);
 CREATE INDEX IF NOT EXISTS notifications_id_idx ON notifications (id DESC);
+
+-- תוקף מוחלט לחיבור: עמודת יצירה (קיימת בהתקנות חדשות; כאן ליתר ביטחון בהתקנות ישנות)
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+-- שמירת היסטוריה כספית: אי אפשר למחוק תורם/קופה/הו"ק שיש להם תרומות, קבלות, שיחות וכו'.
+-- במקום CASCADE / SET NULL - RESTRICT. רץ בכל עלייה: בודק את סוג המפתח הקיים ומחליף רק אם צריך (מהיר כשהכול כבר מעודכן).
+-- טבלאות עזר בלבד (donor_links, donor_dates, call_tasks) נשארות CASCADE; יומן הודעות ואורחי אירוע נשארים SET NULL (השורה נשמרת).
+DO $$
+DECLARE
+  spec TEXT[];
+  specs TEXT[][] := ARRAY[
+    ARRAY['transactions', 'donor_id', 'donors'],
+    ARRAY['documents', 'donor_id', 'donors'],
+    ARRAY['standing_orders', 'donor_id', 'donors'],
+    ARRAY['pledges', 'donor_id', 'donors'],
+    ARRAY['interactions', 'donor_id', 'donors'],
+    ARRAY['spiritual_orders', 'donor_id', 'donors'],
+    ARRAY['charge_batch_items', 'donor_id', 'donors'],
+    ARRAY['charge_batch_items', 'standing_order_id', 'standing_orders'],
+    ARRAY['transactions', 'standing_order_id', 'standing_orders'],
+    ARRAY['box_collections', 'box_id', 'tzedaka_boxes']
+  ];
+  cname TEXT;
+  ctype "char";
+BEGIN
+  FOREACH spec SLICE 1 IN ARRAY specs LOOP
+    SELECT c.conname, c.confdeltype INTO cname, ctype
+      FROM pg_constraint c
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+     WHERE c.contype = 'f' AND c.conrelid = spec[1]::regclass AND c.confrelid = spec[3]::regclass
+       AND array_length(c.conkey, 1) = 1 AND a.attname = spec[2]
+     LIMIT 1;
+    IF cname IS NULL THEN
+      EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(id) ON DELETE RESTRICT',
+        spec[1], spec[1] || '_' || spec[2] || '_fkey', spec[2], spec[3]);
+    ELSIF ctype <> 'r' THEN
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', spec[1], cname);
+      EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(id) ON DELETE RESTRICT',
+        spec[1], cname, spec[2], spec[3]);
+    END IF;
+  END LOOP;
+END $$;
