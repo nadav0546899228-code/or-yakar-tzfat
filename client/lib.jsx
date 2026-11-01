@@ -205,6 +205,7 @@ export function RefPicker({ res, value, onChange, placeholder = 'הקלידו ל
   const [open, setOpen] = useState(false);
   const [hl, setHl] = useState(0);
   const timer = useRef();
+  const seq = useRef(0);
   useEffect(() => {
     if (!value) { setLabel(''); return; }
     api(`/r/${res}/options?id=${value}`).then((d) => setLabel(d.rows[0]?.label || `#${value}`)).catch(() => {});
@@ -212,7 +213,8 @@ export function RefPicker({ res, value, onChange, placeholder = 'הקלידו ל
   const search = (text) => {
     setQ(text); setOpen(true);
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => api(`/r/${res}/options?q=${encodeURIComponent(text)}`).then((d) => { setItems(d.rows); setHl(0); }).catch(() => {}), 180);
+    // רק התשובה לחיפוש האחרון מוצגת (תשובה איטית לחיפוש קודם לא דורסת)
+    timer.current = setTimeout(() => { const my = ++seq.current; api(`/r/${res}/options?q=${encodeURIComponent(text)}`).then((d) => { if (my !== seq.current) return; setItems(d.rows); setHl(0); }).catch(() => {}); }, 180);
   };
   const pick = (it) => { onChange(it ? it.id : null); setLabel(it ? it.label : ''); setQ(''); setOpen(false); };
   return (
