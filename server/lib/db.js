@@ -21,9 +21,15 @@ async function init() {
       max: 10,
       ssl: /localhost|127\.0\.0\.1|sslmode=disable/.test(url) ? false : { rejectUnauthorized: false },
     });
-    // "היום" ו"החודש" במסד (CURRENT_DATE, date_trunc) לפי שעון ישראל ולא UTC
-    pool.on('connect', (c) => { c.query("SET TIME ZONE 'Asia/Jerusalem'").catch(() => {}); });
-    impl = { query: (sql, params) => pool.query(sql, params), kind: 'pg' };
+    // "היום" ו"החודש" במסד (CURRENT_DATE, date_trunc) לפי שעון ישראל ולא UTC - נקבע פעם אחת לכל חיבור, לפני השאילתה הראשונה שלו
+    const run = async (sql, params) => {
+      const c = await pool.connect();
+      try {
+        if (!c.ilTz) { await c.query("SET TIME ZONE 'Asia/Jerusalem'"); c.ilTz = true; }
+        return await c.query(sql, params);
+      } finally { c.release(); }
+    };
+    impl = { query: run, kind: 'pg' };
   } catch (e) {
     if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e;
     const { DevClient } = await import('./devpg.js');

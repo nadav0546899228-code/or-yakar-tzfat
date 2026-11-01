@@ -167,7 +167,7 @@ function BulkBar({ resKey, def, meta, ids, onClear, onDone }) {
             <Field label="ערך חדש">
               {fdef?.type === 'select' && <select className="input" value={val} onChange={(e) => setVal(e.target.value)}><option value="">-</option>{(meta.options[fdef.options] || []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>}
               {fdef?.type === 'user' && <UserPicker value={val} onChange={(v) => setVal(v || '')} />}
-              {fdef?.type === 'bool' && <select className="input" value={val} onChange={(e) => setVal(e.target.value)}><option value="true">כן</option><option value="false">לא</option></select>}
+              {fdef?.type === 'bool' && <select className="input" value={val} onChange={(e) => setVal(e.target.value)}><option value="">- בחרו -</option><option value="true">כן</option><option value="false">לא</option></select>}
             </Field>
           </div>
         </Modal>
@@ -479,7 +479,7 @@ export function DonorCard({ params }) {
             <div className="kpi"><div className="label">השנה</div><div className="value num">{money(data.stats.this_year)}</div></div>
             <div className="kpi"><div className="label">מספר תרומות</div><div className="value">{data.stats.count}</div></div>
             <div className="kpi"><div className="label">תרומה אחרונה</div><div className="value" style={{ fontSize: 18 }}>{date(data.stats.last) || '-'}</div></div>
-            <div className="kpi"><div className="label">הו"ק פעילות</div><div className="value num">{money(data.keva.filter((k) => k.status === 'active').reduce((a, k) => a + Number(k.amount), 0))}</div></div>
+            <div className="kpi"><div className="label">הו"ק פעילות</div><div className="value num">{money(data.keva.filter((k) => k.status === 'active').reduce((a, k) => a + Number(k.amount) * ((meta?.rates || {})[k.currency] || (k.currency === 'ILS' || !k.currency ? 1 : { USD: 3.7, EUR: 4, GBP: 4.7 }[k.currency] || 1)), 0))}</div></div>
           </div>
         )}
       </div>
@@ -609,7 +609,7 @@ function TxActions({ t, onChange }) {
     <div className="row" style={{ gap: 4 }} onClick={(e) => e.stopPropagation()}>
       {t.status === 'paid' && !t.document_id && can(user, 'docs.issue') && <button className="btn sm" onClick={() => run(() => api(`/transactions/${t.id}/document`, { method: 'POST', body: {} }), (r) => `הופקה ${r.document.number}`).then(onChange)}>קבלה</button>}
       {!t.approved && can(user, 'tx.approve') && <button className="btn sm primary" onClick={() => act('approve')}>אישור</button>}
-      {['failed', 'bounced'].includes(t.status) && can(user, 'tx.actions') && <button className="btn sm" onClick={() => act('retry')}>חיוב חוזר</button>}
+      {['failed', 'bounced'].includes(t.status) && can(user, 'tx.actions') && <button className="btn sm" onClick={async () => { if (await confirmDialog(`לנסות לחייב שוב ${money(t.amount, t.currency)}?`, { danger: false })) act('retry'); }}>חיוב חוזר</button>}
       {t.status === 'paid' && can(user, 'tx.actions') && <button className="btn sm danger" onClick={() => setConfirm('refund')}>זיכוי</button>}
       {t.method === 'check' && t.status !== 'bounced' && can(user, 'tx.actions') && <button className="btn sm danger" onClick={() => setConfirm('bounce')}>צ׳ק חזר</button>}
       {confirm && <Confirm danger title={confirm === 'refund' ? 'זיכוי תנועה' : 'סימון צ׳ק שחזר'} needReason={confirm === 'bounce'}

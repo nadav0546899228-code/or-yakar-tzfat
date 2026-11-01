@@ -100,10 +100,12 @@ export function FieldPage() {
   const [isNew, setIsNew] = useState(false);
   const [last, setLast] = useState(null);
   const [tab, setTab] = useState('collect');
+  const [saved, setSaved] = useState(0);
   const set = (k) => (e) => setF({ ...f, [k]: e?.target ? e.target.value : e });
   const submit = async () => {
     const r = await run(() => api('/field/collect', { method: 'POST', body: f }), 'נשמר בהצלחה');
-    setLast(r); setF(blank); setIsNew(false);
+    // משטח החתימה מתאפס יחד עם הטופס (אחרת נראית חתימה ישנה שלא תישמר בתרומה הבאה)
+    setLast(r); setF(blank); setIsNew(false); setSaved((n) => n + 1);
   };
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
@@ -127,7 +129,7 @@ export function FieldPage() {
           {f.method === 'check' && <div className="form-grid"><Field label="מס׳ צ׳ק"><input className="input" value={f.check_number} onChange={set('check_number')} /></Field><Field label="בנק"><input className="input" value={f.check_bank} onChange={set('check_bank')} /></Field><Field label="פירעון"><input className="input" type="date" value={f.check_due_date} onChange={set('check_due_date')} /></Field></div>}
           {f.method === 'keva_bank' && <div className="form-grid"><Field label="בנק"><input className="input" inputMode="numeric" value={f.bank_code} onChange={set('bank_code')} /></Field><Field label="סניף"><input className="input" inputMode="numeric" value={f.branch_code} onChange={set('branch_code')} /></Field><Field label="חשבון"><input className="input" inputMode="numeric" value={f.account_number} onChange={set('account_number')} /></Field><Field label="יום חיוב"><select className="input" value={f.day_of_month} onChange={set('day_of_month')}>{[1, 10, 15, 20].map((d) => <option key={d}>{d}</option>)}</select></Field></div>}
           <Field label="הקדשה"><input className="input" value={f.dedication} onChange={set('dedication')} /></Field>
-          <Field label="חתימת התורם"><SignaturePad onChange={set('signature_data')} /></Field>
+          <Field label="חתימת התורם"><SignaturePad key={saved} onChange={set('signature_data')} /></Field>
           <button className="btn primary" style={{ minHeight: 48, fontSize: 17 }} disabled={!f.amount || (!f.donor_id && !f.first_name)} onClick={submit}>שמירה</button>
         </div>
       )}
@@ -381,7 +383,10 @@ export function MasavPage() {
           <Field label="תאריך ערך"><input className="input" type="date" value={chargeDate} onChange={(e) => setChargeDate(e.target.value)} /></Field></div>
         {data && <><p><b>{data.rows.length}</b> הוראות · סה"כ <b className="num">{money(data.total)}</b></p>
           <div className="table-wrap"><table className="t"><thead><tr><th>תורם</th><th>סכום</th><th>בנק</th><th>סניף</th><th>חשבון</th></tr></thead><tbody>{data.rows.map((r) => <tr key={r.id}><td>{r.donor_name}</td><td className="num">{money(r.amount)}</td><td>{r.bank}</td><td>{r.branch}</td><td className="num">{r.account}</td></tr>)}</tbody></table></div></>}
-        <button className="btn primary" disabled={!data?.rows.length} onClick={() => run(() => downloadPost('/masav/file', { day, charge_date: chargeDate }, `masav-${chargeDate}.txt`), 'הקובץ הופק. התנועות נרשמו כממתינות לאישור הבנק')}>הפקת קובץ חיובים</button>
+        <button className="btn primary" disabled={!data?.rows.length} onClick={async () => {
+          if (!(await confirmDialog(`להפיק קובץ חיובים ל-${data.rows.length} הוראות, סה"כ ${money(data.total)}, בתאריך ערך ${date(chargeDate)}?\nהחיובים יירשמו כממתינים לאישור הבנק.`, { ok: 'הפקת הקובץ', danger: false }))) return;
+          run(() => downloadPost('/masav/file', { day, charge_date: chargeDate }, `masav-${chargeDate}.txt`), (r) => (r?.repeat ? 'קובץ לתאריך הזה כבר הופק - הורד שוב אותו קובץ, בלי חיובים נוספים' : 'הקובץ הופק. התנועות נרשמו כממתינות לאישור הבנק'));
+        }}>הפקת קובץ חיובים</button>
       </div>
       <div className="card stack">
         <h3>קליטת החזרות (סירובים)</h3>

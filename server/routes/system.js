@@ -13,6 +13,7 @@ import { runDailyAutomations } from '../automations.js';
 import { normalizePhone } from '../lib/security.js';
 import { RESOURCES, OPTIONS } from '../resources.js';
 import { seedDemo, clearDemo, demoCounts } from '../seed.js';
+import { scopeClause } from './crud.js';
 
 const DONOR_LABEL = "TRIM(COALESCE(d.title || ' ','') || COALESCE(d.first_name,'') || ' ' || COALESCE(d.last_name,''))";
 
@@ -23,7 +24,9 @@ function toCsv(rows, columns) {
     if (v instanceof Date) v = v.toISOString().slice(0, 10);
     if (Array.isArray(v)) v = v.join(', ');
     if (typeof v === 'object') v = JSON.stringify(v);
-    const s = String(v);
+    let s = String(v);
+    // הגנה מפני נוסחאות זדוניות באקסל (שם תורם מטופס ציבורי שמתחיל ב-= למשל)
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return `﻿${[cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n')}`;
@@ -273,7 +276,10 @@ export function registerSystemRoutes(r) {
     const res = RESOURCES[ctx.params.res];
     if (!res) throw new HttpError(404, 'לא קיים');
     requirePerm(ctx, res.perms.read);
-    const rows = await many(`SELECT * FROM ${res.table} ORDER BY id`);
+    // ייצוא לפי אותו תחום כמו הרשימה (מגייס מייצא רק את התורמים שלו)
+    const sp = [];
+    const sc = scopeClause(res, ctx.user, sp);
+    const rows = await many(`SELECT * FROM ${res.table}${sc ? ` WHERE ${sc}` : ''} ORDER BY id`, sp);
     const cols = ['id', ...res.fields.filter((f) => f.type !== 'file').map((f) => f.key)];
     const header = Object.fromEntries(cols.map((c) => [c, res.fields.find((f) => f.key === c)?.label || c]));
     const mapped = rows.map((r0) => Object.fromEntries(cols.map((c) => [header[c], r0[c]])));
@@ -382,7 +388,7 @@ export function registerSystemRoutes(r) {
     if (ctx.query.action) { params.push(`%${ctx.query.action}%`); conds.push(`a.action ILIKE $${params.length}`); }
     if (ctx.query.from) { params.push(ctx.query.from); conds.push(`a.at >= $${params.length}`); }
     if (ctx.query.impersonated === 'true') conds.push('a.impersonator_id IS NOT NULL');
-    const page = Math.max(Number(ctx.query.page) || 1, 1);
+    const page = Math.max(Math.floor(Number(ctx.query.page)) || 1, 1);
     const rows = await many(`SELECT a.*, u.name AS user_name, iu.name AS impersonator_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
       LEFT JOIN users iu ON iu.id = a.impersonator_id ${conds.length ? `WHERE ${conds.join(' AND ')}` : ''} ORDER BY a.at DESC LIMIT 100 OFFSET ${(page - 1) * 100}`, params);
     ctx.json(200, { rows, page });

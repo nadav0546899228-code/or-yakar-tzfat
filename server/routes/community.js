@@ -46,12 +46,7 @@ export function registerCommunityRoutes(r) {
       out.shabbat = { candles: zmanim(fri).candles, havdala: zmanim(sat).havdala, date: fri };
     }
     if (board.show_yahrzeits) {
-      const rows = await many("SELECT person_name, hebrew_day, hebrew_month, relation FROM donor_dates WHERE kind = 'yahrzeit' AND person_name IS NOT NULL AND hebrew_day IS NOT NULL AND hebrew_month IS NOT NULL");
-      const from = new Date(`${today}T12:00:00`);
-      const limit = new Date(from.getTime() + 7 * 86400000);
-      out.yahrzeits = rows.map((x) => ({ name: x.person_name, at: nextOccurrence(x.hebrew_day, x.hebrew_month, from) }))
-        .filter((x) => x.at && x.at <= limit).sort((a, b) => a.at - b.at).slice(0, 18)
-        .map((x) => ({ name: x.name, date: toHebrew(x.at).text.split(' ').slice(0, 2).join(' ') }));
+      out.yahrzeits = await cachedYahrzeits(today);
     }
     if (board.show_campaign_id) {
       const c = await one('SELECT * FROM campaigns WHERE id = $1', [board.show_campaign_id]);
@@ -112,11 +107,25 @@ export function registerCommunityRoutes(r) {
       campaign_id: c.id, institution_id: c.institution_id, team_id: teamId, display_name: name, is_anonymous: !!b.anonymous,
       public_message: String(b.message || '').trim().slice(0, 200) || null, dedication: String(b.dedication || '').trim().slice(0, 200) || null,
       notes: sandbox ? 'תרומה מדף הקמפיין (הדמיה - לא נגבה כסף)' : 'תרומה מדף הקמפיין - ממתינה לאישור הסליקה',
-    }, null);
+    }, null, { isDemo: sandbox }); // בהדמיה: מסומנת כנתון דוגמה - לא נכנסת לדוחות האמיתיים ונמחקת בניקוי
     await notify({ title: `תרומה בקמפיין ${c.name}`, body: `${b.anonymous ? 'בעילום שם' : name} · ${amount.toLocaleString('he-IL')} ₪${sandbox ? ' (הדמיה)' : ''}`, link: '/app/transactions', roles: ['developer', 'manager', 'vp', 'treasurer'] });
     if (!sandbox && c.donation_url) { ctx.json(200, { ok: true, redirect: rewriteDonationLinks(c.donation_url), tx: row.id }); return; }
     ctx.json(200, { ok: true, sandbox, tx: row.id });
   });
+}
+
+// יארצייטים ללוח המודעות: חישוב כבד (תאריך עברי לכל רשומה) - נשמר בזיכרון לעשר דקות במקום בכל רענון של כל מסך
+const yzCache = { key: '', at: 0, data: [] };
+async function cachedYahrzeits(today) {
+  if (yzCache.key === today && Date.now() - yzCache.at < 10 * 60 * 1000) return yzCache.data;
+  const rows = await many("SELECT person_name, hebrew_day, hebrew_month, relation FROM donor_dates WHERE kind = 'yahrzeit' AND person_name IS NOT NULL AND hebrew_day IS NOT NULL AND hebrew_month IS NOT NULL");
+  const from = new Date(`${today}T12:00:00`);
+  const limit = new Date(from.getTime() + 7 * 86400000);
+  const data = rows.map((x) => ({ name: x.person_name, at: nextOccurrence(x.hebrew_day, x.hebrew_month, from) }))
+    .filter((x) => x.at && x.at <= limit).sort((a, b) => a.at - b.at).slice(0, 18)
+    .map((x) => ({ name: x.name, date: toHebrew(x.at).text.split(' ').slice(0, 2).join(' ') }));
+  Object.assign(yzCache, { key: today, at: Date.now(), data });
+  return data;
 }
 
 export { isoDate };

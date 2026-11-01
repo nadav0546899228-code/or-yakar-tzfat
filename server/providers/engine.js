@@ -1,7 +1,7 @@
 // מנוע החיבורים: סנכרון, פעולות על תנועות/הו"ק, הפקת מסמכים ושליחת הודעות.
 // בסביבת פיתוח: ספק עם מתאם אמיתי פונה ל-Sandbox של הספק; ספק בהדמיה מייצר נתונים מסומנים כדוגמה.
 import { query, one, many, insert } from '../lib/db.js';
-import { israelDay } from '../lib/dates.js';
+import { israelDay, israelMonth } from '../lib/dates.js';
 import { encrypt, decrypt, normalizePhone } from '../lib/security.js';
 import { HttpError } from '../lib/router.js';
 import { isSandbox } from '../env.js';
@@ -277,15 +277,24 @@ export async function transactionAction(txId, action, user, extra = {}) {
   let message;
   if (action === 'refund') {
     if (tx.status !== 'paid') throw new HttpError(400, 'ניתן לזכות רק תנועה ששולמה');
+    // זיכוי מול הספק עדיין לא מחובר: בייצור לא מסמנים "זוכה" כאילו הכסף הוחזר
+    if (!isSandbox()) throw new HttpError(400, `זיכוי אוטומטי מול ${sourceLabel} עדיין לא מחובר. יש לבצע את הזיכוי במערכת של הספק ואז לבטל את התנועה כאן`);
     await query("UPDATE transactions SET status = 'refunded' WHERE id = $1", [tx.id]);
-    message = `זיכוי נשלח ל${sourceLabel}${isSandbox() ? ' (הדמיה)' : ''}`;
-    if (tx.document_id) message += '. יש להפיק מסמך זיכוי לקבלה המקורית';
+    message = `זיכוי נרשם (הדמיה - לא נשלח ל${sourceLabel})`;
+    if (tx.document_id) message += '. יש לבטל את הקבלה המקורית (מופק מסמך זיכוי)';
   } else if (action === 'cancel') {
+    if (tx.status === 'cancelled') throw new HttpError(400, 'התנועה כבר בוטלה');
+    // תנועה עם קבלה בתוקף: קודם מבטלים את הקבלה (זיכוי), אחרת נשארת קבלה 46 על תרומה שלא קיימת
+    if (tx.document_id) {
+      const doc = await one("SELECT number FROM documents WHERE id = $1 AND status = 'active'", [tx.document_id]);
+      if (doc) throw new HttpError(400, `לתנועה יש קבלה בתוקף (${doc.number}). יש לבטל קודם את הקבלה במסך הקבלות`);
+    }
     await query("UPDATE transactions SET status = 'cancelled' WHERE id = $1", [tx.id]);
     message = 'התנועה בוטלה';
   } else if (action === 'retry') {
     if (!['failed', 'bounced'].includes(tx.status)) throw new HttpError(400, 'ניתן לחייב מחדש רק תנועה שנכשלה');
-    const ok = isSandbox() ? Math.random() > 0.3 : false;
+    if (!isSandbox()) throw new HttpError(400, 'חיוב חוזר מול הספק עדיין לא מחובר. לחיוב כרטיס שמור השתמשו במסך החיובים החודשיים');
+    const ok = Math.random() > 0.3;
     await query('UPDATE transactions SET status = $2, failure_reason = $3 WHERE id = $1', [tx.id, ok ? 'paid' : 'failed', ok ? null : 'סירוב חוזר (הדמיה)']);
     message = ok ? 'החיוב החוזר הצליח (הדמיה)' : 'החיוב החוזר נכשל (הדמיה)';
   } else if (action === 'approve') {
@@ -326,12 +335,22 @@ export async function kevaAction(soId, action, user, extra = {}) {
       message = `הסכום עודכן ל-${amount} ב${src}${sim}`; break;
     }
     case 'charge_once': {
-      const amount = Number(extra.amount || so.amount);
+      const amount = Math.round(Number(extra.amount || so.amount) * 100) / 100;
+      if (!(amount > 0) || amount > 100000) throw new HttpError(400, 'סכום לא תקין');
+      // חיוב אמיתי של הכרטיס השמור (בהדמיה - מדומה). בלי זה התנועה הייתה נרשמת "שולם" בלי שירד כסף
+      let res = { ok: true, simulated: true };
+      if (so.type === 'credit') {
+        try { res = await chargeToken(so, { amount, currency: so.currency, month: israelMonth(), description: 'חיוב בודד' }); } catch (e) { res = { ok: false, message: e.message }; }
+      } else if (!isSandbox()) {
+        throw new HttpError(400, 'חיוב בודד בהוראת קבע בנקאית נעשה דרך קובץ מס"ב');
+      }
       const { row } = await recordTransaction({
         donor_id: so.donor_id, source: so.source, kind: 'keva', method: so.type === 'bank' ? 'bank_keva' : 'credit',
-        amount, currency: so.currency, status: 'paid', institution_id: so.institution_id, purpose_id: so.purpose_id,
-        standing_order_id: so.id, notes: 'חיוב בודד מתוך המערכת',
+        amount, currency: so.currency, status: res.ok ? 'paid' : 'failed', failure_reason: res.ok ? null : String(res.message || 'החיוב נדחה').slice(0, 200),
+        institution_id: so.institution_id, purpose_id: so.purpose_id, standing_order_id: so.id, card_last4: so.card_last4,
+        notes: `חיוב בודד מתוך המערכת${res.simulated ? ' (הדמיה)' : ''}`, raw: { confirmation: res.confirmation || null, simulated: !!res.simulated },
       }, user, { isDemo: so.is_demo });
+      if (!res.ok) throw new HttpError(400, `החיוב נדחה: ${res.message || 'ללא פירוט'} (נרשם כתנועה שנכשלה ${row.id})`);
       await query('UPDATE standing_orders SET last_charge_date = CURRENT_DATE, months_paid = months_paid + 1 WHERE id = $1', [so.id]);
       message = `בוצע חיוב בודד ${amount}${sim} (תנועה ${row.id})`; break;
     }
@@ -377,7 +396,21 @@ export async function chargeToken(so, { amount, currency, month, description }) 
 }
 
 // ---------- מסמכים ----------
-export async function issueDocument({ transactionId, donorId, type = 'receipt46', amount, currency, lang, providerKey, description, annualYear }, user) {
+// נעילה פשוטה בתוך התהליך
+const docLocks = new Map();
+async function withLock(key, fn) {
+  while (docLocks.has(key)) { try { await docLocks.get(key); } catch { /* */ } }
+  const p = fn();
+  docLocks.set(key, p);
+  try { return await p; } finally { docLocks.delete(key); }
+}
+
+export function issueDocument(args, user) {
+  // הפקת קבלות רצה אחת-אחת: אין שתי קבלות לאותה תנועה ואין התנגשות במספור (כמות הקבלות קטנה, ההמתנה זניחה)
+  return withLock('documents', () => issueDocumentUnlocked(args, user));
+}
+
+async function issueDocumentUnlocked({ transactionId, donorId, type = 'receipt46', amount, currency, lang, providerKey, description, annualYear }, user) {
   const tx = transactionId ? await one('SELECT * FROM transactions WHERE id = $1', [transactionId]) : null;
   if (tx?.document_id) {
     const existing = await one('SELECT * FROM documents WHERE id = $1 AND status = $2', [tx.document_id, 'active']);
@@ -398,10 +431,13 @@ export async function issueDocument({ transactionId, donorId, type = 'receipt46'
   if (pKey === 'greeninvoice' && st.secrets.api_key_id) {
     result = await GI.issue(st, { donor, tx, type, amount: finalAmount, currency: finalCurrency, lang: lang || donor?.language, description });
   } else {
-    const seq = await one("SELECT COUNT(*)::int + 1 AS n FROM documents WHERE provider = $1", [pKey]);
+    // בלי ספק קבלות מחובר מפיקים קבלת הדמיה בלבד. בייצור אסור לייצר מספר קבלה או מספר דיווח לרשות המסים מומצאים
+    if (!isSandbox()) throw new HttpError(400, 'לא מחובר ספק קבלות (חשבונית ירוקה). יש להזין מפתחות במסך הספקים לפני הפקת קבלה');
+    const seq = await one(`SELECT COALESCE(MAX(NULLIF(regexp_replace(number, '\\D', '', 'g'), '')::bigint), 0) + 1 AS n
+      FROM documents WHERE provider = $1 AND type <> 'credit'`, [pKey]);
     result = {
       external_id: `SBX-${pKey}-${Date.now()}`,
-      number: `${isSandbox() ? 'SBX-' : ''}${String(seq.n).padStart(5, '0')}`,
+      number: `SBX-${String(seq.n).padStart(5, '0')}`,
       pdf_url: null,
       tax_report_number: type === 'receipt46' ? `SBX-${Math.floor(100000000 + Math.random() * 899999999)}` : null,
     };

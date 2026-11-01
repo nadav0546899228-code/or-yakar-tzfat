@@ -14,6 +14,17 @@ export function verifyPin(pin, stored) {
   return expected.length === hash.length && crypto.timingSafeEqual(expected, hash);
 }
 
+// גרסה אסינכרונית: לא חוסמת את השרת בזמן החישוב (ניסיונות רבים במקביל לא מקפיאים את האתר)
+const scryptAsync = (pin, salt) => new Promise((ok, fail) => crypto.scrypt(String(pin), salt, 32, { N: 16384 }, (e, k) => (e ? fail(e) : ok(k))));
+const DUMMY = `scrypt$${'0'.repeat(32)}$${'0'.repeat(64)}`;
+export async function verifyPinAsync(pin, stored) {
+  const ok = stored && stored.startsWith('scrypt$');
+  const [, saltHex, hashHex] = (ok ? stored : DUMMY).split('$');
+  const hash = await scryptAsync(pin, Buffer.from(saltHex, 'hex'));
+  const expected = Buffer.from(hashHex, 'hex');
+  return !!ok && expected.length === hash.length && crypto.timingSafeEqual(expected, hash);
+}
+
 export function randomToken(bytes = 32) {
   return crypto.randomBytes(bytes).toString('base64url');
 }

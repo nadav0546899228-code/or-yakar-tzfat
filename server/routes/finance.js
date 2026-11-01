@@ -1,16 +1,24 @@
 import { query, one, many, insert, update } from '../lib/db.js';
-import { israelDay, israelDayOfMonth } from '../lib/dates.js';
+import { israelDay, israelDayOfMonth, israelMonth } from '../lib/dates.js';
+import { isSandbox } from '../env.js';
+import { getSetting } from '../settings.js';
+
+// שערי המטבע מההגדרות (ולא 3.7 קבוע לכל מטבע). מספרים בלבד - בטוח לשילוב בשאילתה
+async function fxRates() {
+  const r = (await getSetting('rates')) || {};
+  const num = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  return { USD: num(r.USD, 3.7), EUR: num(r.EUR, 4.0), GBP: num(r.GBP, 4.7) };
+}
 import { HttpError } from '../lib/router.js';
 import { requirePerm, requireUser } from '../auth.js';
 import { can } from '../roles.js';
 import { audit } from '../audit.js';
-import { LABEL_SQL, cleanBody } from './crud.js';
+import { LABEL_SQL, cleanBody, assertInScope } from './crud.js';
 import { RESOURCES } from '../resources.js';
 import {
   recordTransaction, transactionAction, kevaAction, issueDocument, cancelDocument, sendMessage, toIls,
 } from '../providers/engine.js';
 import { getProvider } from '../providers/registry.js';
-import { isSandbox } from '../env.js';
 import { normalizePhone, bankRef, parseBankRef } from '../lib/security.js';
 
 function instScope(ctx, alias, params) {
@@ -64,7 +72,8 @@ export function registerFinanceRoutes(r) {
       const kc = ["status = 'active'"];
       const kdc = demoClause(ctx, 's');
       if (kdc) kc.push(kdc);
-      out.keva = await one(`SELECT COUNT(*)::int AS active, COALESCE(SUM(CASE WHEN currency='ILS' THEN amount ELSE amount * 3.7 END),0) AS monthly
+      const R = await fxRates();
+      out.keva = await one(`SELECT COUNT(*)::int AS active, COALESCE(SUM(amount * CASE currency WHEN 'USD' THEN ${R.USD} WHEN 'EUR' THEN ${R.EUR} WHEN 'GBP' THEN ${R.GBP} ELSE 1 END),0) AS monthly
         FROM standing_orders s WHERE ${kc.join(' AND ')}`, kp);
       out.kevaChurn = await one(`SELECT COUNT(*)::int AS c FROM standing_orders s WHERE status IN ('cancelled','ended')
         AND COALESCE(cancelled_at, end_date::timestamptz) > now() - interval '30 days' ${kdc ? `AND ${kdc}` : ''}`);
@@ -92,6 +101,7 @@ export function registerFinanceRoutes(r) {
   r.get('/api/donors/:id/full', async (ctx) => {
     requirePerm(ctx, 'donors.read');
     const id = Number(ctx.params.id);
+    await assertInScope('donors', ctx.user, id);
     const donor = await one(`SELECT d.*, u.name AS recruiter_name, i.name AS institution_name FROM donors d
       LEFT JOIN users u ON u.id = d.recruiter_user_id LEFT JOIN institutions i ON i.id = d.institution_id WHERE d.id = $1`, [id]);
     if (!donor) throw new HttpError(404, 'תורם לא נמצא');
@@ -268,8 +278,10 @@ export function registerFinanceRoutes(r) {
   r.post('/api/charge', async (ctx) => {
     requirePerm(ctx, 'tx.write');
     const b = ctx.body;
-    const amount = Number(b.amount);
-    if (!b.donor_id || !amount) throw new HttpError(400, 'תורם וסכום הם חובה');
+    const amount = Math.round(Number(b.amount) * 100) / 100;
+    if (!b.donor_id || !(amount > 0)) throw new HttpError(400, 'תורם וסכום חיובי הם חובה');
+    // זה מסלול הדמיה בלבד: בייצור אסור לרשום "שולם" בלי שהספק באמת חייב
+    if (!isSandbox()) throw new HttpError(400, 'חיוב מתוך המערכת עדיין לא מחובר לספק אמיתי. השתמשו בדף התרומה המאובטח');
     const provider = b.provider || 'cardcom';
     const def = getProvider(provider);
     if (!def) throw new HttpError(400, 'ספק סליקה לא מוכר');
@@ -339,13 +351,14 @@ export function registerFinanceRoutes(r) {
     const dc = demoClause(ctx, 's');
     if (dc) conds.push(dc);
     const w = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const R = await fxRates();
     const rows = await many(`SELECT s.*, ${DONOR_LABEL} AS donor_name, d.phone AS donor_phone, i.name AS institution_name,
       (SELECT COUNT(*)::int FROM transactions t WHERE t.standing_order_id = s.id AND t.status = 'failed') AS failed_count
       FROM standing_orders s LEFT JOIN donors d ON d.id = s.donor_id LEFT JOIN institutions i ON i.id = s.institution_id
       ${w} ORDER BY CASE s.status WHEN 'failed' THEN 0 WHEN 'active' THEN 1 WHEN 'frozen' THEN 2 ELSE 3 END, s.amount DESC LIMIT 1000`, params);
     const summary = await one(`SELECT COUNT(*) FILTER (WHERE s.status='active')::int AS active, COUNT(*) FILTER (WHERE s.status='frozen')::int AS frozen,
       COUNT(*) FILTER (WHERE s.status='failed')::int AS failed,
-      COALESCE(SUM(CASE WHEN s.currency='ILS' THEN s.amount ELSE s.amount*3.7 END) FILTER (WHERE s.status='active'),0) AS monthly
+      COALESCE(SUM(s.amount * CASE s.currency WHEN 'USD' THEN ${R.USD} WHEN 'EUR' THEN ${R.EUR} WHEN 'GBP' THEN ${R.GBP} ELSE 1 END) FILTER (WHERE s.status='active'),0) AS monthly
       FROM standing_orders s LEFT JOIN donors d ON d.id = s.donor_id ${w}`, params);
     ctx.json(200, { rows, summary });
   });
@@ -444,6 +457,16 @@ export function registerFinanceRoutes(r) {
     requirePerm(ctx, 'keva.actions');
     const day = Number(ctx.body.day) || 10;
     const chargeDate = ctx.body.charge_date || israelDay();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(chargeDate)) throw new HttpError(400, 'תאריך ערך לא תקין');
+    // הגנה מחיוב כפול: קובץ אחד בלבד לכל יום חיוב + תאריך ערך. הפקה חוזרת מורידה את אותו קובץ בלי לרשום חיובים נוספים
+    const claim = await one(`INSERT INTO masav_batches (day, charge_date, created_by) VALUES ($1,$2,$3)
+      ON CONFLICT (day, charge_date) DO NOTHING RETURNING id`, [day, chargeDate, ctx.user.id]);
+    if (!claim) {
+      const prev = await one('SELECT file FROM masav_batches WHERE day = $1 AND charge_date = $2', [day, chargeDate]);
+      if (!prev?.file) throw new HttpError(409, 'קובץ לתאריך הזה נמצא כרגע בהפקה. נסו שוב בעוד רגע');
+      ctx.send(200, prev.file, 'text/plain; charset=utf-8', { 'Content-Disposition': `attachment; filename="masav-${chargeDate}-copy.txt"`, 'X-Masav-Repeat': '1' });
+      return;
+    }
     const rows = (await masavRows(day)).filter((x) => parseBankRef(x.token_ref));
     const cfg = (await one("SELECT config FROM providers WHERE key = 'masav'"))?.config || {};
     const pad = (s, n, ch = ' ', left = false) => { s = String(s ?? '').slice(0, n); return left ? s.padStart(n, ch) : s.padEnd(n, ch); };
@@ -461,8 +484,10 @@ export function registerFinanceRoutes(r) {
     }
     lines.push(`5${pad(cfg.institution_code || '00000000', 8, '0', true)}00${ymd}0001${pad(total, 15, '0', true)}${pad('', 15, '0')}${pad(rows.length, 7, '0', true)}${pad('', 7, '0')}`);
     lines.push('9'.repeat(128));
+    const file = lines.join('\r\n');
+    await query('UPDATE masav_batches SET file = $2, count = $3, total = $4 WHERE id = $1', [claim.id, file, rows.length, total / 100]);
     await audit(ctx.user, 'masav_file', 'masav', day, { count: rows.length, total: total / 100, chargeDate });
-    ctx.send(200, lines.join('\r\n'), 'text/plain; charset=utf-8', { 'Content-Disposition': `attachment; filename="masav-${chargeDate}.txt"` });
+    ctx.send(200, file, 'text/plain; charset=utf-8', { 'Content-Disposition': `attachment; filename="masav-${chargeDate}.txt"` });
   });
 
   // קליטת החזרות מס"ב (סירובים) - רשימת מזהי הו"ק שחזרו
@@ -473,7 +498,9 @@ export function registerFinanceRoutes(r) {
     for (const it of items) {
       const so = await one('SELECT * FROM standing_orders WHERE id = $1', [Number(it.standing_order_id)]);
       if (!so) continue;
-      await query("UPDATE transactions SET status = 'bounced', failure_reason = $2 WHERE standing_order_id = $1 AND status = 'pending' AND method = 'bank_keva'", [so.id, it.reason || 'החזרת מס"ב']);
+      // רק החיוב האחרון שממתין חוזר (ולא כל החיובים הממתינים של אותה הוראה)
+      await query(`UPDATE transactions SET status = 'bounced', failure_reason = $2 WHERE id = (SELECT id FROM transactions
+        WHERE standing_order_id = $1 AND status = 'pending' AND method = 'bank_keva' ORDER BY date DESC, id DESC LIMIT 1)`, [so.id, it.reason || 'החזרת מס"ב']);
       const failures = so.failures + 1;
       await query('UPDATE standing_orders SET failures = $2, status = $3 WHERE id = $1', [so.id, failures, failures >= 3 ? 'failed' : so.status]);
       await query("INSERT INTO call_tasks (donor_id, reason, priority, due_date, standing_order_id, notes) VALUES ($1,'failed_charge',1, CURRENT_DATE + 1, $2, $3)", [so.donor_id, so.id, `החזרת מס"ב: ${it.reason || ''}`]);
@@ -488,6 +515,8 @@ export function registerFinanceRoutes(r) {
   r.post('/api/field/collect', async (ctx) => {
     requirePerm(ctx, 'field.use');
     const b = ctx.body;
+    const amt = Number(b.amount);
+    if (!(amt > 0) || amt > 1000000) throw new HttpError(400, 'יש להזין סכום חיובי');
     let donorId = b.donor_id ? Number(b.donor_id) : null;
     if (!donorId) {
       if (!b.first_name) throw new HttpError(400, 'יש להזין שם תורם');

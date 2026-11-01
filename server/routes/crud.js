@@ -6,6 +6,7 @@ import { requirePerm } from '../auth.js';
 import { audit } from '../audit.js';
 import { normalizePhone } from '../lib/security.js';
 import { onDonorCreated } from '../automations.js';
+import { getSetting } from '../settings.js';
 
 export const LABEL_SQL = {
   donors: "TRIM(COALESCE(title || ' ','') || COALESCE(first_name,'') || ' ' || COALESCE(last_name,''))",
@@ -24,7 +25,19 @@ function getRes(key) {
   return r;
 }
 
-function scopeClause(res, user, params) {
+// בדיקה שרשומה בודדת בתחום של המשתמש (מגייס - רק התורמים שלו, מנהל מוסד - רק של המוסד). נדרש גם בצפייה, עריכה ומחיקה ולא רק ברשימה
+export async function assertInScope(resKey, user, id) {
+  const res = RESOURCES[resKey];
+  if (!res?.scope) return;
+  const params = [Number(id)];
+  const where = scopeClause(res, user, params);
+  if (!where) return;
+  const ok = await one(`SELECT 1 FROM ${res.table} WHERE ${res.table}.id = $1 AND ${where}`, params);
+  if (!ok) throw new HttpError(404, 'לא נמצא');
+}
+const PICKER_OPEN = ['institutions', 'purposes', 'campaigns', 'events', 'segments'];
+
+export function scopeClause(res, user, params) {
   if (!res.scope) return '';
   const s = res.scope(user);
   if (!s) return '';
@@ -90,7 +103,7 @@ export async function resolveLabels(res, rows) {
 export function registerCrudRoutes(r) {
   r.get('/api/meta', async (ctx) => {
     requirePerm(ctx, 'staff');
-    ctx.json(200, publicMeta());
+    ctx.json(200, { ...publicMeta(), rates: (await getSetting('rates')) || null });
   });
 
   // רשימה עם חיפוש, סינון ועימוד
@@ -116,8 +129,8 @@ export function registerCrudRoutes(r) {
     const scope = scopeClause(res, ctx.user, params);
     if (scope) where.push(scope);
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-    const size = Math.min(Number(ctx.query.size) || 50, 500);
-    const page = Math.max(Number(ctx.query.page) || 1, 1);
+    const size = Math.max(1, Math.min(Math.floor(Number(ctx.query.size)) || 50, 500));
+    const page = Math.max(Math.floor(Number(ctx.query.page)) || 1, 1);
     const computed = Object.entries(res.computed || {}).map(([k, sql]) => `${sql} AS ${k}`);
     const select = [`${res.table}.*`, ...computed].join(', ');
     const total = await one(`SELECT COUNT(*)::int AS c FROM ${res.table} ${whereSql}`, params);
@@ -133,19 +146,25 @@ export function registerCrudRoutes(r) {
   r.get('/api/r/:res/options', async (ctx) => {
     const res = getRes(ctx.params.res);
     requirePerm(ctx, 'staff');
+    // רשימת בחירה חושפת שמות וטלפונים - רק למי שמורשה לראות את המודול (מלבד רשימות כלליות כמו מוסדות וקמפיינים)
+    if (!PICKER_OPEN.includes(ctx.params.res)) requirePerm(ctx, res.perms.read);
     const exp = LABEL_SQL[ctx.params.res] || 'name';
-    const q = (ctx.query.q || '').trim();
+    const q = (ctx.query.q || '').trim().slice(0, 100);
     const params = [];
-    let where = '';
-    if (q) { params.push(`%${q}%`); where = `WHERE ${exp} ILIKE $1${ctx.params.res === 'donors' ? ' OR phone ILIKE $1' : ''}`; }
-    if (ctx.query.id) { params.length = 0; params.push(Number(ctx.query.id)); where = 'WHERE id = $1'; }
-    const rows = await many(`SELECT id, ${exp} AS label${ctx.params.res === 'donors' ? ', phone' : ''} FROM ${res.table} ${where} ORDER BY label LIMIT 30`, params);
+    const conds = [];
+    if (ctx.query.id) { params.push(Number(ctx.query.id) || 0); conds.push(`${res.table}.id = $${params.length}`); }
+    else if (q) { params.push(`%${q}%`); conds.push(`(${exp} ILIKE $${params.length}${ctx.params.res === 'donors' ? ` OR phone ILIKE $${params.length}` : ''})`); }
+    const sc = scopeClause(res, ctx.user, params);
+    if (sc) conds.push(sc);
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const rows = await many(`SELECT ${res.table}.id, ${exp} AS label${ctx.params.res === 'donors' ? ', phone' : ''} FROM ${res.table} ${where} ORDER BY label LIMIT 30`, params);
     ctx.json(200, { rows });
   });
 
   r.get('/api/r/:res/:id', async (ctx) => {
     const res = getRes(ctx.params.res);
     requirePerm(ctx, res.perms.read);
+    await assertInScope(ctx.params.res, ctx.user, ctx.params.id);
     const computed = Object.entries(res.computed || {}).map(([k, sql]) => `${sql} AS ${k}`);
     const row = await one(`SELECT ${[`${res.table}.*`, ...computed].join(', ')} FROM ${res.table} WHERE id = $1`, [ctx.params.id]);
     if (!row) throw new HttpError(404, 'לא נמצא');
@@ -174,6 +193,7 @@ export function registerCrudRoutes(r) {
     const res = getRes(ctx.params.res);
     if (res.readonly) throw new HttpError(400, 'מודול לקריאה בלבד');
     requirePerm(ctx, res.perms.write);
+    await assertInScope(ctx.params.res, ctx.user, ctx.params.id);
     const before = await one(`SELECT * FROM ${res.table} WHERE id = $1`, [ctx.params.id]);
     if (!before) throw new HttpError(404, 'לא נמצא');
     const data = cleanBody(res, ctx.body, { creating: false });
@@ -188,6 +208,9 @@ export function registerCrudRoutes(r) {
     const res = getRes(ctx.params.res);
     if (res.readonly) throw new HttpError(400, 'מודול לקריאה בלבד');
     requirePerm(ctx, res.perms.write);
+    // מחיקת תורם מוחקת היסטוריה (התחייבויות, שיחות) - רק להנהלה
+    if (ctx.params.res === 'donors' && !['developer', 'manager', 'vp'].includes(ctx.user.active_role)) throw new HttpError(403, 'מחיקת תורם מותרת להנהלה בלבד. אפשר לסמן את התורם כלא פעיל');
+    await assertInScope(ctx.params.res, ctx.user, ctx.params.id);
     const before = await one(`SELECT * FROM ${res.table} WHERE id = $1`, [ctx.params.id]);
     if (!before) throw new HttpError(404, 'לא נמצא');
     if (!ctx.body.reason && ['donors', 'institutions'].includes(ctx.params.res)) throw new HttpError(400, 'יש לציין סיבת מחיקה');

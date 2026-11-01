@@ -13,6 +13,12 @@ import { InboxPage, GlobalSearch, ViewToggle } from './inbox.jsx';
 import { BoardsPage, CrowdfundingPage } from './community.jsx';
 import { MonthlyChargesPage, MonthlyHistoryPage } from './monthly.jsx';
 
+// אחרי כניסה חוזרים למסך שבו היינו (רק כתובת פנימית של המערכת)
+function afterLogin() {
+  const next = new URLSearchParams(window.location.search).get('next') || '';
+  return /^\/app(\/|$|\?)/.test(next) ? next : '/app';
+}
+
 // תפריט לפי הרשאה. perm = המפתח בשרת (roles.js)
 const MENU = [
   { grp: 'ראשי' },
@@ -87,7 +93,7 @@ function GoogleButton() {
       window.google.accounts.id.initialize({
         client_id: cfg.client_id,
         callback: async (resp) => {
-          try { await api('/auth/google', { method: 'POST', body: { credential: resp.credential } }); window.location.href = '/app'; } catch (err) { toast(err.message, 'error'); }
+          try { await api('/auth/google', { method: 'POST', body: { credential: resp.credential } }); window.location.href = afterLogin(); } catch (err) { toast(err.message, 'error'); }
         },
       });
       window.google.accounts.id.renderButton(ref.current, { theme: 'outline', size: 'large', text: 'signin_with', locale: 'he', width: 300 });
@@ -109,7 +115,7 @@ export function Login({ org }) {
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault(); setBusy(true);
-    try { await api('/auth/login', { method: 'POST', body: { phone, pin } }); window.location.href = '/app'; } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
+    try { await api('/auth/login', { method: 'POST', body: { phone, pin } }); window.location.href = afterLogin(); } catch (err) { toast(err.message, 'error'); } finally { setBusy(false); }
   };
   return (
     <div className="login-wrap">
@@ -357,16 +363,18 @@ const ROUTES = [
 ];
 
 export function AppShell({ site }) {
-  const { path } = useRoute();
+  // מפתח לפי כתובת: כל מסך נפתח נקי (בלי סינון/לשונית של המסך הקודם), וקישור עם סינון תמיד מוחל
+  const { path, query } = useRoute();
   const [me, setMe] = useState(null);
   const [meta, setMeta] = useState(null);
   const [sideOpen, setSideOpen] = useState(false);
   const [demoMode, setDemoMode] = useState(() => { try { return localStorage.getItem('oy_demo') || ''; } catch { return ''; } });
   const [counts, setCounts] = useState({});
   const [liveTick, setLiveTick] = useState(0);
-  const loadMe = () => api('/auth/me').then((d) => { if (!d.user) { navigate('/login', { replace: true }); return; } setPerms(d.perms); setMe(d); });
+  const [meErr, setMeErr] = useState(null);
+  const loadMe = () => api('/auth/me').then((d) => { if (!d.user) { navigate(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`, { replace: true }); return; } setPerms(d.perms); setMe(d); setMeErr(null); }).catch(setMeErr);
   useEffect(() => { loadMe(); }, []);
-  useEffect(() => { if (me?.user && !(me.user.must_change_pin && !me.impersonator)) api('/meta').then(setMeta).catch(() => {}); }, [me?.user?.active_role, me?.user?.must_change_pin]);
+  useEffect(() => { if (me?.user && !(me.user.must_change_pin && !me.impersonator)) api('/meta').then(setMeta).catch(setMeErr); }, [me?.user?.active_role, me?.user?.must_change_pin]);
   useEffect(() => {
     if (!me?.user || (me.user.must_change_pin && !me.impersonator)) return;
     Promise.all([api('/dashboard').catch(() => ({})), api('/inbox').catch(() => ({}))]).then(([d, ib]) => setCounts({ tasks: d.tasks?.c, boxes: d.boxesDue?.c, aid: d.aidOpen?.c, contact: d.contactOpen?.c, spiritual: d.spiritualPending?.c, inbox: ib.unread }));
@@ -374,6 +382,7 @@ export function AppShell({ site }) {
   useEffect(() => { const on = () => setLiveTick((t) => t + 1); window.addEventListener('oy:refresh', on); return () => window.removeEventListener('oy:refresh', on); }, []);
   useEffect(() => setSideOpen(false), [path]);
   useEffect(() => { try { localStorage.setItem('oy_demo', demoMode); } catch { /* */ } }, [demoMode]);
+  if (meErr && (!me?.user || !meta)) return <div className="empty">לא ניתן לטעון את המערכת: {meErr.message}<div style={{ marginTop: 10 }}><button className="btn primary" onClick={() => window.location.reload()}>נסו שוב</button></div></div>;
   if (!me?.user) return <Spinner />;
   // קוד זמני: לפני כל דבר אחר חייבים להחליף אותו (השרת חוסם את שאר המערכת עד אז)
   if (me.user.must_change_pin && !me.impersonator) return <ForcePin onDone={() => { window.location.href = '/app'; }} />;
@@ -420,7 +429,7 @@ export function AppShell({ site }) {
             <Link to="/app/profile" className="btn ghost sm topbar-name">{user.name}</Link>
             <button className="btn sm" onClick={async () => { await api('/auth/logout', { method: 'POST' }); window.location.href = '/login'; }}>יציאה</button>
           </div>
-          <div className="content"><ErrorBoundary resetKey={path}>{Page ? <Page params={params} /> : <div className="empty">העמוד לא נמצא</div>}</ErrorBoundary></div>
+          <div className="content"><ErrorBoundary resetKey={path}>{Page ? <Page key={path + qs(query)} params={params} /> : <div className="empty">העמוד לא נמצא</div>}</ErrorBoundary></div>
         </div>
       </div>
       <nav className="bottom-nav">

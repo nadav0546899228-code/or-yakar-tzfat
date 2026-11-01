@@ -1,10 +1,22 @@
 import { one, query, many } from './lib/db.js';
-import { hashPin, verifyPin, randomToken, sha256, normalizePhone } from './lib/security.js';
+import { hashPin, verifyPin, verifyPinAsync, randomToken, sha256, normalizePhone } from './lib/security.js';
 import { HttpError } from './lib/router.js';
 import { can, ROLES, canManageRole, PERMS } from './roles.js';
 import { audit } from './audit.js';
 import { isSandbox, isPublished } from './env.js';
 import { registerGoogleRoutes } from './googleAuth.js';
+import crypto from 'node:crypto';
+
+// הגבלת קצב לפי טלפון (לא תלויה בכתובת IP שהדפדפן יכול לזייף)
+const phoneHits = new Map();
+function perPhoneLimited(key, limit, windowMs) {
+  const now = Date.now();
+  const arr = (phoneHits.get(key) || []).filter((t) => now - t < windowMs);
+  arr.push(now);
+  phoneHits.set(key, arr);
+  if (phoneHits.size > 5000) for (const [k, v] of phoneHits) if (!v.some((t) => now - t < windowMs)) phoneHits.delete(k);
+  return arr.length > limit;
+}
 
 const COOKIE = 'oy_sess';
 const SESSION_DAYS = 30;
@@ -86,8 +98,10 @@ export function registerAuthRoutes(r) {
     const phone = normalizePhone(ctx.body.phone);
     const pin = String(ctx.body.pin || '');
     if (!phone || !pin) throw new HttpError(400, 'יש להזין טלפון וקוד');
+    if (perPhoneLimited(`login:${phone}`, 10, 15 * 60 * 1000)) throw new HttpError(429, 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות');
     const u = await one('SELECT * FROM users WHERE phone = $1', [phone]);
     if (!u || !u.active) {
+      await verifyPinAsync(pin, null); // אותו זמן תגובה כמו למספר קיים - לא חושפים אילו מספרים רשומים
       await audit(null, 'login_failed', 'user', null, { phone });
       throw new HttpError(401, 'טלפון או קוד שגויים');
     }
@@ -96,20 +110,24 @@ export function registerAuthRoutes(r) {
       const mins = Math.ceil((new Date(u.locked_until) - new Date()) / 60000);
       throw new HttpError(423, `החשבון נעול זמנית. נסו שוב בעוד ${mins} דקות`);
     }
-    if (!verifyPin(pin, u.pin_hash)) {
-      const failed = u.failed_attempts + 1;
-      if (failed >= MAX_FAILED) {
-        const locks = u.lock_count + 1;
-        const permanent = locks >= MAX_LOCKS;
-        await query(
-          `UPDATE users SET failed_attempts = 0, lock_count = $2, locked_permanent = $3,
-           locked_until = now() + interval '${LOCK_MINUTES} minutes' WHERE id = $1`,
-          [u.id, locks, permanent],
-        );
+    // הניסיון נספר במסד לפני הבדיקה, באופן אטומי - ניחושים במקביל לא עוקפים את מגבלת 5 הניסיונות
+    const claim = await one(`UPDATE users SET failed_attempts = failed_attempts + 1
+      WHERE id = $1 AND locked_permanent = FALSE AND (locked_until IS NULL OR locked_until <= now()) RETURNING failed_attempts`, [u.id]);
+    if (!claim) throw new HttpError(423, 'החשבון נעול זמנית. נסו שוב בעוד כמה דקות');
+    if (!(await verifyPinAsync(pin, u.pin_hash))) {
+      if (claim.failed_attempts >= MAX_FAILED) {
+        // נעילה ל-15 דקות; 5 נעילות בתוך 30 יום = נעילה קבועה עד שחרור ידני
+        const lk = await one(`UPDATE users SET failed_attempts = 0,
+            lock_count = CASE WHEN last_lock_at IS NULL OR last_lock_at < now() - interval '30 days' THEN 1 ELSE lock_count + 1 END,
+            last_lock_at = now(), locked_until = now() + interval '${LOCK_MINUTES} minutes'
+          WHERE id = $1 AND failed_attempts >= ${MAX_FAILED} RETURNING lock_count`, [u.id]);
+        // ניסיונות במקביל: רק הראשון שמגיע לסף נועל (נעילה אחת, לא כמה)
+        if (!lk) throw new HttpError(423, `יותר מדי ניסיונות. החשבון נעול ל-${LOCK_MINUTES} דקות`);
+        const permanent = lk.lock_count >= MAX_LOCKS;
+        if (permanent) await query('UPDATE users SET locked_permanent = TRUE WHERE id = $1', [u.id]);
         await audit({ id: u.id }, permanent ? 'locked_permanent' : 'locked_temp', 'user', u.id, {});
         throw new HttpError(423, permanent ? 'החשבון ננעל. יש לפנות לממונה לשחרור' : `יותר מדי ניסיונות. החשבון נעול ל-${LOCK_MINUTES} דקות`);
       }
-      await query('UPDATE users SET failed_attempts = $2 WHERE id = $1', [u.id, failed]);
       throw new HttpError(401, 'טלפון או קוד שגויים');
     }
     await query('UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = now() WHERE id = $1', [u.id]);
@@ -162,6 +180,8 @@ export function registerAuthRoutes(r) {
     if (email !== undefined) { params.push(email); updates.push(`email = $${params.length}`); }
     if (name) { params.push(name); updates.push(`name = $${params.length}`); }
     if (updates.length) await query(`UPDATE users SET ${updates.join(', ')} WHERE id = $1`, params);
+    // החלפת קוד מנתקת את כל שאר המכשירים (למשל אם הקוד הישן דלף)
+    if (pin) await query('DELETE FROM sessions WHERE user_id = $1 AND token_hash <> $2', [u.id, ctx.session?.token_hash || '']);
     await audit(ctx.user, 'profile_update', 'user', u.id, { fields: Object.keys(ctx.body).filter((k) => !k.includes('pin')) });
     ctx.json(200, { ok: true });
   });
@@ -187,6 +207,16 @@ export function registerAuthRoutes(r) {
     await createSession(ctx, { userId: original, role: bestRole(u.roles) });
     ctx.json(200, { ok: true });
   });
+
+  // היררכיה בשרת: מותר לנהל משתמש רק אם מותר לנהל את כל התפקידים שלו (מנהל לא משתלט על מנהל אחר או על מתכנת)
+  function assertCanManageUser(ctx, target) {
+    if (ctx.user.active_role === 'developer') return;
+    if (target.id === ctx.user.id) throw new HttpError(403, 'את הפרטים שלך משנים מהמסך "הפרופיל שלי"');
+    if (target.roles.includes('developer') || target.is_owner) throw new HttpError(403, 'אין הרשאה לנהל משתמש זה');
+    const blocked = target.roles.find((role) => !canManageRole([ctx.user.active_role], role));
+    if (blocked) throw new HttpError(403, `אין הרשאה לנהל משתמש בתפקיד ${ROLES[blocked]?.label || blocked}`);
+  }
+  const tempPinCode = () => String(crypto.randomInt(100000, 1000000));
 
   // ניהול משתמשים
   r.get('/api/users', async (ctx) => {
@@ -216,7 +246,7 @@ export function registerAuthRoutes(r) {
     if (p && await one('SELECT id FROM users WHERE phone = $1', [p])) throw new HttpError(400, 'מספר הטלפון כבר קיים');
     const em = email ? String(email).trim().toLowerCase() : null;
     if (em && await one('SELECT id FROM users WHERE LOWER(email) = $1', [em])) throw new HttpError(400, 'המייל כבר קיים אצל משתמש אחר');
-    const tempPin = pin || String(Math.floor(100000 + Math.random() * 900000));
+    const tempPin = pin || tempPinCode();
     const u = await one(
       `INSERT INTO users (name, phone, email, roles, institution_id, pin_hash, must_change_pin) VALUES ($1,$2,$3,$4,$5,$6,TRUE) RETURNING id`,
       [name, p, em, roles, institution_id || null, hashPin(tempPin)],
@@ -229,7 +259,7 @@ export function registerAuthRoutes(r) {
     requirePerm(ctx, 'users.manage');
     const target = await one('SELECT * FROM users WHERE id = $1', [ctx.params.id]);
     if (!target) throw new HttpError(404, 'משתמש לא נמצא');
-    if (target.roles.includes('developer') && ctx.user.active_role !== 'developer') throw new HttpError(403, 'אין הרשאה לערוך משתמש זה');
+    assertCanManageUser(ctx, target);
     if (target.is_owner && ctx.body.active === false) throw new HttpError(400, 'לא ניתן להשבית את חשבון הבעלים');
     const { name, phone, email, roles, institution_id, active } = ctx.body;
     if (roles) {
@@ -254,8 +284,8 @@ export function registerAuthRoutes(r) {
     requirePerm(ctx, 'users.manage');
     const target = await one('SELECT * FROM users WHERE id = $1', [ctx.params.id]);
     if (!target) throw new HttpError(404, 'משתמש לא נמצא');
-    if (target.roles.includes('developer') && ctx.user.active_role !== 'developer') throw new HttpError(403, 'אין הרשאה');
-    const tempPin = String(Math.floor(100000 + Math.random() * 900000));
+    assertCanManageUser(ctx, target);
+    const tempPin = tempPinCode();
     await query(`UPDATE users SET pin_hash = $2, must_change_pin = TRUE, failed_attempts = 0, lock_count = 0,
       locked_until = NULL, locked_permanent = FALSE WHERE id = $1`, [target.id, hashPin(tempPin)]);
     await query('DELETE FROM sessions WHERE user_id = $1', [target.id]);
@@ -265,6 +295,9 @@ export function registerAuthRoutes(r) {
 
   r.post('/api/users/:id/unlock', async (ctx) => {
     requirePerm(ctx, 'users.manage');
+    const target = await one('SELECT * FROM users WHERE id = $1', [ctx.params.id]);
+    if (!target) throw new HttpError(404, 'משתמש לא נמצא');
+    assertCanManageUser(ctx, target);
     await query('UPDATE users SET failed_attempts = 0, lock_count = 0, locked_until = NULL, locked_permanent = FALSE WHERE id = $1', [ctx.params.id]);
     await audit(ctx.user, 'user_unlock', 'user', ctx.params.id, {});
     ctx.json(200, { ok: true });
@@ -273,26 +306,30 @@ export function registerAuthRoutes(r) {
   // כניסת תורם בקוד חד-פעמי (בסביבת פיתוח הקוד מוחזר במסך במקום SMS)
   r.post('/api/donor/otp', async (ctx) => {
     const phone = normalizePhone(ctx.body.phone);
+    // לכל היותר 5 בקשות קוד לטלפון בשעה - אחרת אפשר לאפס את מונה הניסיונות שוב ושוב
+    if (phone && perPhoneLimited(`otp:${phone}`, 5, 60 * 60 * 1000)) throw new HttpError(429, 'נשלחו יותר מדי קודים למספר הזה. נסו שוב בעוד שעה');
     const donor = phone ? await one('SELECT id FROM donors WHERE phone = $1 OR phone2 = $1 LIMIT 1', [phone]) : null;
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = String(crypto.randomInt(100000, 1000000));
     if (donor) {
       await query(`INSERT INTO donor_otps (phone, code_hash, expires_at, attempts) VALUES ($1,$2, now() + interval '10 minutes', 0)
         ON CONFLICT (phone) DO UPDATE SET code_hash = EXCLUDED.code_hash, expires_at = EXCLUDED.expires_at, attempts = 0`, [phone, sha256(code)]);
     }
-    // לא חושפים אם הטלפון קיים; בפיתוח מציגים את הקוד לבדיקה
-    ctx.json(200, { ok: true, sandbox_code: isSandbox() && !isPublished() && donor ? code : undefined });
+    // לא חושפים אם הטלפון קיים. הקוד מוצג על המסך רק למתכנת מחובר בסביבת הדמיה (אתר הפיתוח פתוח לכל העולם)
+    const showCode = isSandbox() && donor && (process.env.DEV_SHOW_OTP === 'true' || ctx.user?.roles?.includes('developer'));
+    ctx.json(200, { ok: true, sandbox_code: showCode ? code : undefined });
   });
 
   r.post('/api/donor/login', async (ctx) => {
     const phone = normalizePhone(ctx.body.phone);
-    const row = await one('SELECT * FROM donor_otps WHERE phone = $1', [phone]);
-    if (!row || new Date(row.expires_at) < new Date() || row.attempts >= 5) throw new HttpError(401, 'הקוד אינו בתוקף. בקשו קוד חדש');
-    if (row.code_hash !== sha256(String(ctx.body.code || ''))) {
-      await query('UPDATE donor_otps SET attempts = attempts + 1 WHERE phone = $1', [phone]);
-      throw new HttpError(401, 'קוד שגוי');
-    }
+    // ניסיון נתפס במסד באופן אטומי: גם ניחושים במקביל לא עוקפים את מגבלת 5 הניסיונות
+    const row = phone ? await one(`UPDATE donor_otps SET attempts = attempts + 1
+      WHERE phone = $1 AND attempts < 5 AND expires_at > now() RETURNING code_hash`, [phone]) : null;
+    if (!row) throw new HttpError(401, 'הקוד אינו בתוקף. בקשו קוד חדש');
+    if (row.code_hash !== sha256(String(ctx.body.code || ''))) throw new HttpError(401, 'קוד שגוי');
     await query('DELETE FROM donor_otps WHERE phone = $1', [phone]);
-    const donor = await one('SELECT id FROM donors WHERE phone = $1 OR phone2 = $1 ORDER BY id LIMIT 1', [phone]);
+    // עדיפות לתורם שזה הטלפון הראשי שלו (ולא בן/בת זוג שהמספר רשום אצלם כטלפון נוסף)
+    const donor = await one('SELECT id FROM donors WHERE phone = $1 OR phone2 = $1 ORDER BY (phone = $1) DESC, id LIMIT 1', [phone]);
+    if (!donor) throw new HttpError(401, 'הקוד אינו בתוקף. בקשו קוד חדש');
     await createSession(ctx, { donorId: donor.id });
     ctx.json(200, { ok: true });
   });

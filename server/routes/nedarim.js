@@ -196,12 +196,26 @@ export function registerNedarimRoutes(r) {
       ctx.send(200, 'OK');
       return;
     }
+    // הגנה מפני CallBack מזויף: רק תרומה שממתינה, רק מכתובת IP מורשית (אם הוגדרה), ורק עם סכום תואם ומספר אישור
+    const allowIps = String(process.env.NEDARIM_CALLBACK_IPS || '').split(',').map((x) => x.trim()).filter(Boolean);
+    if (allowIps.length && !allowIps.includes(ctx.ip)) {
+      await audit(null, 'nedarim_callback_rejected_ip', 'transaction', tx.id, { ip: ctx.ip });
+      ctx.send(200, 'OK');
+      return;
+    }
+    if (tx.status !== 'pending') {
+      await audit(null, 'nedarim_callback_duplicate', 'transaction', tx.id, { status: tx.status });
+      ctx.send(200, 'OK');
+      return;
+    }
     const amount = Number(pick(b, 'Amount', 'amount') || 0);
     const statusText = String(pick(b, 'Status', 'status') || '');
-    const ok = !/error|fail|סירוב|נכשל/i.test(statusText) && (!amount || Math.abs(amount - Number(tx.amount)) < 0.01);
+    const confirmation = pick(b, 'Confirmation', 'TransactionId');
+    const amountOk = amount > 0 && Math.abs(amount - Number(tx.amount)) < 0.01;
+    const ok = !/error|fail|סירוב|נכשל/i.test(statusText) && amountOk && !!confirmation;
     const status = await finish(tx, {
-      ok, message: pick(b, 'Message', 'ErrorText') || (amount && !ok ? 'הסכום ב-CallBack אינו תואם לתרומה' : statusText),
-      last4: pick(b, 'LastNum', 'LastNumber'), confirmation: pick(b, 'Confirmation', 'TransactionId'), data: b, via: 'callback',
+      ok, message: pick(b, 'Message', 'ErrorText') || (!amountOk ? 'הסכום ב-CallBack חסר או אינו תואם לתרומה' : !confirmation ? 'חסר מספר אישור ב-CallBack' : statusText),
+      last4: pick(b, 'LastNum', 'LastNumber'), confirmation, data: { ...b, _ip: ctx.ip }, via: 'callback',
     });
     await audit(null, 'nedarim_callback', 'transaction', tx.id, { status, test: !!tx.raw?.nedarim_test });
     ctx.send(200, 'OK');

@@ -62,6 +62,7 @@ export function registerExtraRoutes(r) {
     if (!ids.length) throw new HttpError(400, 'לא נבחרו שורות');
     const { action } = ctx.body;
     if (action === 'delete') {
+      if (ctx.params.res === 'donors' && !['developer', 'manager', 'vp'].includes(ctx.user.active_role)) throw new HttpError(403, 'מחיקת תורמים מותרת להנהלה בלבד');
       const reason = String(ctx.body.reason || '').trim();
       if (!reason) throw new HttpError(400, 'יש לציין סיבת מחיקה');
       const rows = await many(`SELECT id FROM ${res.table} WHERE id = ANY($1::int[])`, [ids]);

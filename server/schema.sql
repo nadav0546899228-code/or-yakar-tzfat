@@ -638,3 +638,33 @@ CREATE TABLE IF NOT EXISTS charge_batch_items (
 -- מונע חיוב כפול של אותה הו"ק באותו חודש (גם בלחיצה כפולה או בשתי לשוניות)
 CREATE UNIQUE INDEX IF NOT EXISTS cbi_once_per_month_idx ON charge_batch_items (standing_order_id, batch_month) WHERE status IN ('processing', 'success');
 CREATE INDEX IF NOT EXISTS cbi_batch_idx ON charge_batch_items (batch_id);
+
+-- נעילה דו-שלבית: ספירת נעילות בחלון מתגלגל של 30 יום
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lock_at TIMESTAMPTZ;
+
+-- קבצי מס"ב שהופקו: אחד לכל יום חיוב + תאריך ערך (מונע חיוב כפול בלחיצה כפולה)
+CREATE TABLE IF NOT EXISTS masav_batches (
+  id SERIAL PRIMARY KEY,
+  day INTEGER NOT NULL,
+  charge_date DATE NOT NULL,
+  file TEXT,
+  count INTEGER,
+  total NUMERIC(14,2),
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (day, charge_date)
+);
+
+-- אינדקסים לשאילתות נפוצות (כרטיס תורם, הו"ק, קבלות, מוקד) - מהירות כשהנתונים גדלים
+CREATE INDEX IF NOT EXISTS tx_standing_order_idx ON transactions (standing_order_id);
+CREATE INDEX IF NOT EXISTS tx_campaign_idx ON transactions (campaign_id);
+CREATE INDEX IF NOT EXISTS tx_donor_date_idx ON transactions (donor_id, date DESC);
+CREATE INDEX IF NOT EXISTS tx_status_date_idx ON transactions (status, date);
+CREATE INDEX IF NOT EXISTS documents_donor_idx ON documents (donor_id);
+CREATE INDEX IF NOT EXISTS so_donor_idx ON standing_orders (donor_id);
+CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS donor_dates_donor_idx ON donor_dates (donor_id);
+CREATE INDEX IF NOT EXISTS call_tasks_donor_status_idx ON call_tasks (donor_id, status);
+CREATE INDEX IF NOT EXISTS donors_phone_idx ON donors (phone);
+CREATE INDEX IF NOT EXISTS donors_phone2_idx ON donors (phone2);
+CREATE INDEX IF NOT EXISTS notifications_id_idx ON notifications (id DESC);

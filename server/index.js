@@ -58,7 +58,7 @@ registerNedarimRoutes(router);
 registerMonthlyRoutes(router);
 process.on('unhandledRejection', (e) => { console.error('[unhandledRejection]', e); logError({ source: 'server', path: 'unhandledRejection', message: e?.message || String(e), stack: e?.stack }); });
 // בדיקת מצב ציבורית (בלי נתונים רגישים): גרסה, בנייה וסטטוס מסד - כדי לוודא מבחוץ שעדכון נקלט
-const SERVER_VERSION = 'monthly-charges-v1';
+const SERVER_VERSION = 'precision-v2';
 router.get('/api/health', async (ctx) => {
   let build = null;
   try { build = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'public', 'build.json'), 'utf8')); } catch { /* אין קובץ בנייה */ }
@@ -69,7 +69,7 @@ router.get('/api/health', async (ctx) => {
       features = { monthly_charges: !!t?.monthly_charges };
     } catch { /* לא קריטי */ }
   }
-  ctx.json(200, { ok: true, version: SERVER_VERSION, build, features, started_at: STARTED_AT, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() });
+  ctx.json(200, { ok: true, version: SERVER_VERSION, session_secret: process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32 ? 'ok' : 'missing_or_short', build, features, started_at: STARTED_AT, db: dbReady ? 'ready' : 'not_ready', db_error: dbError, has_database_url: !!process.env.DATABASE_URL, ...envInfo() });
 });
 const STARTED_AT = new Date().toISOString();
 

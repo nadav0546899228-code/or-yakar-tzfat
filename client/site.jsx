@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useRoute, api, toast, Logo, Field, navigate, money, date, phoneHref, waHref } from './lib.jsx';
+import { METHOD_LABELS } from './labels.js';
+
+const frameOrigin = (url) => { try { return new URL(url).origin; } catch { return '*'; } };
 
 function Icon({ name, size = 20 }) {
   const p = {
@@ -226,7 +229,7 @@ function DonorArea() {
         </div>
         <div className="card"><h3>התרומות שלי</h3>
           <div className="table-wrap"><table className="t"><thead><tr><th>תאריך</th><th>סכום</th><th>אמצעי</th></tr></thead><tbody>
-            {data.transactions.map((t) => <tr key={t.id}><td>{date(t.date)}</td><td>{money(t.amount, t.currency)}</td><td>{t.method}</td></tr>)}
+            {data.transactions.map((t) => <tr key={t.id}><td>{date(t.date)}</td><td className="num">{money(t.amount, t.currency)}</td><td>{METHOD_LABELS[t.method] || t.method}</td></tr>)}
           </tbody></table></div>
         </div>
       </section>
@@ -326,7 +329,14 @@ function DonatePage({ org }) {
           CallBack: cfg.callback_url, CallBackMailError: cfg.callback_mail_error, AjaxId: start.ajax_id,
           ...(scenario?.bad_tokef ? { Tokef: scenario.bad_tokef } : {}),
         },
-      }, '*');
+      }, frameOrigin(cfg.iframe_url)); // פרטי התורם נשלחים רק לשרת של נדרים ולא לכל מי שבמסגרת
+      // אם מערכת התשלום לא עונה תוך שתי דקות - משחררים את הכפתור עם הסבר, במקום "מעבד" נצחי
+      setTimeout(() => {
+        if (pending.current === start) {
+          setBusy(false);
+          setError('לא התקבלה תשובה ממערכת התשלום. אם החיוב עבר - אישור יישלח אליכם. אחרת אפשר לנסות שוב');
+        }
+      }, 120000);
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -380,7 +390,7 @@ function DonatePage({ org }) {
         </div>
         <input type="text" name="website" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
         <iframe ref={frameRef} title="תשלום מאובטח - נדרים פלוס" src={cfg.iframe_url} style={{ width: '100%', border: 0, height: frameH || 320 }}
-          onLoad={() => frameRef.current?.contentWindow.postMessage({ Name: 'GetHeight' }, '*')} />
+          onLoad={() => frameRef.current?.contentWindow.postMessage({ Name: 'GetHeight' }, frameOrigin(cfg.iframe_url))} />
         {error && <div className="notice" style={{ color: 'var(--bad)' }}>{error}</div>}
         <button className="btn gold" disabled={busy}>{busy ? 'מעבד תשלום, נא להמתין...' : `ביצוע תשלום ${Number(f.amount || 0).toLocaleString('he-IL')} ₪`}</button>
         <div className="small muted">התשלום מתבצע בדף מאובטח של נדרים פלוס. פרטי הכרטיס אינם נשמרים באתר. <Link to="/terms">תקנון ומדיניות ביטול</Link></div>

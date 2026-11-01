@@ -46,7 +46,19 @@ const STATUS_TEXT = {
   409: 'הנתונים השתנו בינתיים - רעננו ונסו שוב', 413: 'הקובץ או הבקשה גדולים מדי', 429: 'יותר מדי ניסיונות. נסו שוב בעוד כמה דקות',
   502: 'השרת לא זמין כרגע. נסו שוב בעוד רגע', 503: 'השרת מתעורר או בעדכון. נסו שוב בעוד רגע', 504: 'השרת לא הגיב בזמן. נסו שוב',
 };
-export async function api(path, { method = 'GET', body, raw, timeout } = {}) {
+// בקשת שינוי זהה שכבר בדרך (לחיצה כפולה, הקשה כפולה בטלפון) לא נשלחת שוב - מקבלים את אותה תשובה.
+// זו הגנה רוחבית מפני חיוב כפול, קבלה כפולה ורישום כפול בכל המערכת
+const inflight = new Map();
+export function api(path, opts = {}) {
+  const method = opts.method || 'GET';
+  if (method === 'GET' || opts.raw) return apiRaw(path, opts);
+  const key = `${method} ${path} ${opts.body ? JSON.stringify(opts.body) : ''}`;
+  if (inflight.has(key)) return inflight.get(key);
+  const p = apiRaw(path, opts).finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+async function apiRaw(path, { method = 'GET', body, raw, timeout } = {}) {
   // הגבלת זמן: בקשת קריאה שלא חוזרת תוך 20 שניות (פעולות שינוי - דקה) מסתיימת בהודעה ברורה במקום "טוען" נצחי
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = ctrl ? setTimeout(() => ctrl.abort(), timeout || (method === 'GET' ? 20000 : 60000)) : null;
@@ -67,6 +79,10 @@ export async function api(path, { method = 'GET', body, raw, timeout } = {}) {
   if (raw) return res;
   const data = res.status === 204 ? {} : await res.json().catch(() => ({}));
   if (!res.ok) {
+    // תוקף הכניסה פג באמצע עבודה - חוזרים למסך הכניסה ואחרי הכניסה חוזרים לאותו מסך
+    if (res.status === 401 && typeof window !== 'undefined' && window.location.pathname.startsWith('/app') && !path.startsWith('/auth/')) {
+      window.location.href = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+    }
     const err = new Error(data.error || STATUS_TEXT[res.status] || `שגיאה ${res.status}`);
     err.status = res.status;
     err.data = data;
@@ -117,6 +133,8 @@ export async function downloadPost(path, body, filename) {
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  return { repeat: res.headers.get('X-Masav-Repeat') === '1' };
 }
 
 // ---------- הודעות ----------
@@ -130,10 +148,13 @@ export function Toasts() {
       setTimeout(() => setItems((x) => x.filter((y) => y.id !== t.id)), t.kind === 'error' ? 6000 : 3500);
     };
   }, []);
-  return <div className="toasts">{items.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.msg}</div>)}</div>;
+  return <div className="toasts" role="status" aria-live="polite">{items.map((t) => <div key={t.id} className={`toast ${t.kind}`} onClick={() => setItems((x) => x.filter((y) => y.id !== t.id))}>{t.msg}</div>)}</div>;
 }
 
 export async function run(fn, okMsg) {
+  // הכפתור שנלחץ ננעל עד שהפעולה מסתיימת - אי אפשר לשלוח פעמיים
+  const btn = typeof document !== 'undefined' && document.activeElement?.tagName === 'BUTTON' && !document.activeElement.disabled ? document.activeElement : null;
+  if (btn) { btn.disabled = true; btn.setAttribute('aria-busy', 'true'); }
   try {
     const r = await fn();
     if (okMsg) toast(typeof okMsg === 'function' ? okMsg(r) : okMsg, 'ok');
@@ -141,6 +162,8 @@ export async function run(fn, okMsg) {
   } catch (e) {
     toast(e.message, 'error');
     throw e;
+  } finally {
+    if (btn) { btn.disabled = false; btn.removeAttribute('aria-busy'); }
   }
 }
 
@@ -149,7 +172,10 @@ const CUR = { ILS: '₪', USD: '$', EUR: '€', GBP: '£' };
 export function money(v, cur = 'ILS') {
   if (v === null || v === undefined || v === '') return '';
   const n = Number(v);
-  return `${CUR[cur] || ''}${n.toLocaleString('he-IL', { maximumFractionDigits: Math.abs(n) >= 100 ? 0 : 2 })}`;
+  if (!Number.isFinite(n)) return '';
+  // סכום שלם בלי אגורות, ואם יש אגורות - תמיד שתי ספרות (1,234.50 ולא 1,235 או 12.5)
+  const whole = Math.abs(n % 1) < 0.005;
+  return `${CUR[cur] || ''}${n.toLocaleString('he-IL', { minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 2 })}`;
 }
 export function date(v) {
   if (!v) return '';
@@ -171,12 +197,23 @@ export function waHref(p, text = '') {
 }
 
 // ---------- רכיבים ----------
+// מחסנית חלונות: Escape סוגר רק את החלון העליון (ולא גם את הטופס שמתחתיו עם כל מה שהוקלד)
+const modalStack = [];
 export function Modal({ title, onClose, children, footer, size = '' }) {
+  const me = useRef({});
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
-    const on = (e) => e.key === 'Escape' && onClose?.();
+    const token = me.current;
+    modalStack.push(token);
+    const on = (e) => {
+      if (e.key !== 'Escape' || modalStack[modalStack.length - 1] !== token) return;
+      if (document.querySelector('.confirm-bg')) return;
+      closeRef.current?.();
+    };
     window.addEventListener('keydown', on);
-    return () => window.removeEventListener('keydown', on);
-  }, [onClose]);
+    return () => { window.removeEventListener('keydown', on); const i = modalStack.indexOf(token); if (i > -1) modalStack.splice(i, 1); };
+  }, []);
   return (
     <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
       <div className={`modal ${size}`} role="dialog" aria-modal="true">
