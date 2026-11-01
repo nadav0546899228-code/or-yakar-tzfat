@@ -344,8 +344,17 @@ export function registerFinanceRoutes(r) {
     requirePerm(ctx, 'tx.actions');
     const allowed = ['institution_id', 'purpose_id', 'campaign_id', 'recruiter_user_id', 'dedication', 'notes', 'donor_id', 'check_number', 'check_bank', 'check_due_date'];
     const data = {};
-    for (const k of allowed) if (ctx.body[k] !== undefined) data[k] = ctx.body[k] === '' ? null : ctx.body[k];
+    const ids = ['institution_id', 'purpose_id', 'campaign_id', 'recruiter_user_id', 'donor_id'];
+    for (const k of allowed) {
+      if (ctx.body[k] === undefined) continue;
+      let v = ctx.body[k] === '' ? null : ctx.body[k];
+      // שדות מזהה חייבים להיות מספר שלם חיובי, ותאריך - תאריך אמיתי (אחרת שגיאת מסד = 500 במקום הודעה ברורה)
+      if (ids.includes(k) && v !== null) { v = Number(v); if (!Number.isInteger(v) || v <= 0) throw new HttpError(400, 'ערך לא תקין בשדה מזהה'); }
+      if (k === 'check_due_date' && v !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || Number.isNaN(Date.parse(v)))) throw new HttpError(400, 'תאריך פירעון לא תקין');
+      data[k] = v;
+    }
     const row = await update('transactions', ctx.params.id, data, allowed);
+    if (!row) throw new HttpError(404, 'תנועה לא נמצאה');
     await audit(ctx.user, 'tx_update', 'transaction', ctx.params.id, data);
     ctx.json(200, { row });
   });
@@ -398,7 +407,7 @@ export function registerFinanceRoutes(r) {
   r.post('/api/keva', async (ctx) => {
     requirePerm(ctx, 'keva.actions');
     const b = ctx.body;
-    if (!b.donor_id || !Number(b.amount)) throw new HttpError(400, 'תורם וסכום הם חובה');
+    if (!b.donor_id || !(Number(b.amount) > 0) || Number(b.amount) > 1000000) throw new HttpError(400, 'תורם וסכום חיובי הם חובה');
     const so = await insert('standing_orders', {
       donor_id: Number(b.donor_id), source: b.source || (b.type === 'bank' ? 'masav' : 'manual'), type: b.type || 'bank', amount: Number(b.amount),
       currency: b.currency || 'ILS', day_of_month: Number(b.day_of_month) || 10, start_date: b.start_date || israelDay(),

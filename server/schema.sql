@@ -710,3 +710,19 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- תמונות האתר הציבורי שמאוחסנות אצלנו (הועתקו מהאתר הישן). source_url ייחודי - העתקה חוזרת לא יוצרת כפילות
+CREATE TABLE IF NOT EXISTS media (
+  id SERIAL PRIMARY KEY,
+  source_url TEXT UNIQUE,
+  mime TEXT NOT NULL,
+  bytes BYTEA NOT NULL,
+  size INTEGER NOT NULL,
+  width INTEGER,
+  height INTEGER,
+  sha1 TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE media ADD COLUMN IF NOT EXISTS width INTEGER;
+ALTER TABLE media ADD COLUMN IF NOT EXISTS height INTEGER;
+ALTER TABLE media ADD COLUMN IF NOT EXISTS sha1 TEXT;

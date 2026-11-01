@@ -12,6 +12,8 @@ import { LiveUpdates } from './live.jsx';
 import { InboxPage, GlobalSearch, ViewToggle } from './inbox.jsx';
 import { BoardsPage, CrowdfundingPage } from './community.jsx';
 import { MonthlyChargesPage, MonthlyHistoryPage } from './monthly.jsx';
+import { SetupWizardPage } from './wizard.jsx';
+import { AssistantPage } from './assistant.jsx';
 
 // אחרי כניסה חוזרים למסך שבו היינו (רק כתובת פנימית של המערכת)
 function afterLogin() {
@@ -45,6 +47,7 @@ const MENU = [
   { to: '/app/r/aid_requests', label: 'מרכז הסיוע', short: 'סיוע', icon: 'heart', perm: 'aid.read', badge: 'aid' },
   { grp: 'בקרה' },
   { to: '/app/reports', label: 'מרכז דוחות', short: 'דוחות', icon: 'chart', perm: 'reports.read' },
+  { to: '/app/assistant', label: 'עוזר נתונים (AI)', short: 'עוזר', icon: 'sparkle', perm: 'reports.read' },
   { to: '/app/masav', label: 'מס"ב והחזרות', short: 'מס"ב', icon: 'bank', perm: 'keva.actions' },
   { to: '/app/settlements', label: 'זיכויי חברות אשראי', short: 'זיכויים', icon: 'card', perm: 'settlements.read' },
   { to: '/app/r/contact_messages', label: 'פניות מהאתר', short: 'פניות', icon: 'inbox', perm: 'messages.send', badge: 'contact' },
@@ -54,6 +57,7 @@ const MENU = [
   { to: '/app/r/materials', label: 'חומרים לתורמים', short: 'חומרים', icon: 'clip', perm: 'automations.write' },
   { to: '/app/users', label: 'משתמשים והרשאות', short: 'משתמשים', icon: 'key', perm: 'users.manage' },
   { to: '/app/settings', label: 'הגדרות העמותה', short: 'הגדרות', icon: 'gear', perm: 'settings.org' },
+  { to: '/app/setup', label: 'אשף הגדרת האתר', short: 'אשף', icon: 'globe', perm: 'settings.org' },
   { to: '/app/audit', label: 'יומן פעולות', short: 'יומן', icon: 'scroll', perm: 'audit.read' },
   { to: '/app/dev', label: 'מסך המתכנת', short: 'מתכנת', icon: 'code', perm: 'dev.only', dev: true },
   { grp: 'עזרה' },
@@ -354,6 +358,9 @@ const ROUTES = [
   ['/app/users', UsersPage],
   ['/app/audit', AuditPage],
   ['/app/settings', SettingsPage],
+  // מסכי האשף והעוזר - חסומים גם בכניסה ישירה מהכתובת, לפי אותה הרשאה של התפריט
+  ['/app/setup', () => (can(React.useContext(AppCtx).user, 'settings.org') ? <SetupWizardPage /> : <div className="empty">אין הרשאה למסך זה בתצוגה הנוכחית</div>)],
+  ['/app/assistant', () => (can(React.useContext(AppCtx).user, 'reports.read') ? <AssistantPage /> : <div className="empty">אין הרשאה למסך זה בתצוגה הנוכחית</div>)],
   ['/app/profile', ProfilePage],
   ['/app/dev', DevPage],
   ['/app/help', HelpPage],

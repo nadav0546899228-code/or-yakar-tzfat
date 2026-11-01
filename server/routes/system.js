@@ -36,7 +36,9 @@ const SETTINGS_PERMS = { org: 'settings.org', theme: 'settings.org', site: 'sett
 
 // נתוני האתר הציבורי - משמשים גם להטמעה ישירה בדף (חוסך סבב טעינה)
 export async function publicSitePayload() {
-  const [org, theme, site] = await Promise.all([getSetting('org'), getSetting('theme'), getSetting('site')]);
+  const [org, theme, rawSite] = await Promise.all([getSetting('org'), getSetting('theme'), getSetting('site')]);
+  // הגדרות שנשמרו לפני שנוסף בלוק הנגישות - משלימים מברירת המחדל
+  const site = rawSite ? { ...rawSite, accessibility: { ...DEFAULTS.site.accessibility, ...(rawSite.accessibility || {}) } } : rawSite;
   return { org: rewriteDonationLinks(org), theme, site: rewriteDonationLinks(site), env: envInfo(), hebrewToday: toHebrew(new Date()).text };
 }
 

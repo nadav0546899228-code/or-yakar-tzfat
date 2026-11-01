@@ -185,6 +185,7 @@ function DiagTab() {
           <button className="btn" onClick={load}>רענון</button>
           <button className="btn danger" onClick={async () => (await confirmDialog('להחליף מפתח? הקישור הקודם יפסיק לעבוד', { danger: true })) && run(() => api('/diag/rotate', { method: 'POST' }), 'הוחלף').then(reload)}>החלפת מפתח</button>
           <button className="btn" onClick={() => run(() => api('/diag/clear-errors', { method: 'POST' }), 'יומן השגיאות נוקה').then(load)}>ניקוי שגיאות</button>
+          <button className="btn" onClick={() => run(() => api('/media/import', { method: 'POST', timeout: 180000 }), (r) => `נמצאו ${r.found} תמונות, הועתקו ${r.imported}${r.failed?.length ? `, ${r.failed.length} נכשלו` : ''}`)}>העתקת תמונות מהאתר הישן</button>
         </div>
       </div>
       {report && (

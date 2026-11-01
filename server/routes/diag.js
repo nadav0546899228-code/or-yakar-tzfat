@@ -49,6 +49,12 @@ function buildInfo() {
 }
 
 export function registerDiagRoutes(r) {
+  // בדיקת יומן השגיאות (מתכנת בלבד): שגיאת שרת מכוונת, כדי לוודא שמזהה השגיאה נשמר ומוצג
+  r.post('/api/diag/test-error', async (ctx) => {
+    requirePerm(ctx, 'dev.only');
+    throw new Error('שגיאת בדיקה מכוונת (בדיקת יומן שגיאות)');
+  });
+
   // שגיאות מהדפדפן
   r.post('/api/diag/client-error', async (ctx) => {
     const { message, stack, url } = ctx.body || {};
